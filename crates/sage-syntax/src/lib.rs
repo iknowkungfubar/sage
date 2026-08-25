@@ -100,8 +100,8 @@ impl Span {
 
 /// An owned source identity, name, and exact source text.
 ///
-/// `SourceFile` is intentionally limited to these source data. Source slicing from [`Span`]
-/// values is a separate concern for later stages.
+/// `SourceFile` is intentionally limited to these source data. [`SourceFile::slice`] provides the
+/// safe borrowed boundary from source spans to exact source text.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceFile {
     id: SourceId,
@@ -145,6 +145,20 @@ impl SourceFile {
     /// Returns the exact source text.
     pub fn text(&self) -> &str {
         &self.text
+    }
+
+    /// Returns the exact borrowed source text covered by `span`.
+    ///
+    /// Slicing succeeds only when the span belongs to this source, its offsets are in bounds,
+    /// and both offsets are UTF-8 scalar boundaries. Empty spans therefore return `Some("")`.
+    /// Invalid spans return `None` rather than panicking or altering the source text.
+    pub fn slice(&self, span: Span) -> Option<&str> {
+        if span.source() != self.id {
+            return None;
+        }
+
+        self.text
+            .get(usize::try_from(span.start()).ok()?..usize::try_from(span.end()).ok()?)
     }
 
     /// Returns the one-based line and column at a UTF-8 byte offset.
@@ -393,6 +407,54 @@ mod tests {
 
         assert_eq!(source.line_column(2), None);
         assert_eq!(source.line_column(4), None);
+    }
+
+    #[test]
+    fn slice_returns_normal_ascii_text() {
+        let source = SourceFile::new(SourceId::new(16), "source.sage", "application Inventory");
+        let span = Span::new(source.id(), 12, 21).expect("valid span");
+
+        assert_eq!(source.slice(span), Some("Inventory"));
+    }
+
+    #[test]
+    fn slice_returns_exact_unicode_text_on_scalar_boundaries() {
+        let source = SourceFile::new(SourceId::new(17), "source.sage", "aé界b");
+        let span = Span::new(source.id(), 1, 6).expect("valid span");
+
+        assert_eq!(source.slice(span), Some("é界"));
+    }
+
+    #[test]
+    fn slice_returns_empty_text_for_empty_spans() {
+        let source = SourceFile::new(SourceId::new(18), "source.sage", "text");
+        let span = Span::new(source.id(), 2, 2).expect("valid empty span");
+
+        assert_eq!(source.slice(span), Some(""));
+    }
+
+    #[test]
+    fn slice_rejects_spans_from_another_source() {
+        let source = SourceFile::new(SourceId::new(19), "source.sage", "text");
+        let span = Span::new(SourceId::new(20), 0, 4).expect("valid span");
+
+        assert_eq!(source.slice(span), None);
+    }
+
+    #[test]
+    fn slice_rejects_out_of_bounds_spans() {
+        let source = SourceFile::new(SourceId::new(21), "source.sage", "text");
+        let span = Span::new(source.id(), 0, 5).expect("valid span");
+
+        assert_eq!(source.slice(span), None);
+    }
+
+    #[test]
+    fn slice_rejects_interior_multi_byte_boundaries() {
+        let source = SourceFile::new(SourceId::new(22), "source.sage", "aé");
+        let span = Span::new(source.id(), 1, 2).expect("valid range");
+
+        assert_eq!(source.slice(span), None);
     }
 
     #[test]
