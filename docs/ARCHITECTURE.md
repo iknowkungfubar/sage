@@ -213,8 +213,9 @@ validation, field-body traversal, and parser recovery are deferred to later pars
 
 The current implemented parser slices are `sage-parser::parse_application`,
 `sage-parser::parse_entity_at`, `sage-parser::parse_field_at`,
-`sage-parser::parse_indentation_at`, `sage-parser::parse_text_type_at`, and
-`sage-parser::parse_whole_number_type_at`. Application parsing recognizes an application
+`sage-parser::parse_indentation_at`, `sage-parser::parse_text_type_at`,
+`sage-parser::parse_whole_number_type_at`, and `sage-parser::parse_decimal_number_type_at`.
+Application parsing recognizes an application
 declaration; entity parsing recognizes only `A <upper_identifier> has:`; field parsing recognizes
 a lower identifier plus the `as` prefix boundary; indentation parsing recognizes only the
 structural line prefix; and primitive-type parsing recognizes only the exact `text`, `whole
