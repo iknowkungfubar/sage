@@ -8,14 +8,16 @@
 
 ## 1. Scope
 
-This document defines the target architecture for SAGE and records how the current repository scaffolding is organized. It does not describe an end-to-end implementation: the repository contains a virtual Cargo workspace and six crates, with application, entity-header, field-prefix, indentation-prefix, and exact primitive-type parser slices currently implemented. Compiler stages and CLI commands remain planned work.
+This document defines the target architecture for SAGE and records how the current repository scaffolding is organized. It does not describe an end-to-end implementation: the repository contains a virtual Cargo workspace and six crates, with application, entity-header, field-prefix, indentation-prefix, exact primitive-type, and optional-type parser slices currently implemented. Compiler stages and CLI commands remain planned work.
 
 The current development phase is the **language kernel**. The implemented parser slices are
 application parsing, composable entity-header parsing, composable field-prefix parsing,
-indentation-prefix inspection, and exact `text`, `whole number`, `decimal number`, and `yes or no`
-primitive-type parsing. The primitive-type slices preserve spans and leave following initial
-clauses and other text unparsed. Optional, literal, and initial-clause parsing, full field parsing,
-AST construction, parser recovery, and structured diagnostics remain future work.
+indentation-prefix inspection, exact `text`, `whole number`, `decimal number`, and `yes or no`
+primitive-type parsing, and exact optional primitive-type parsing. The type slices preserve spans
+and leave following initial-clause text unparsed. Optional syntax accepts `optional` followed by
+one exact primitive phrase; nested optionals remain invalid in SAGE 0.1. Literals, initial-clause
+parsing, full field parsing, AST construction, parser recovery, and structured diagnostics remain
+future work.
 
 The target architecture is intentionally designed to support future expansion without prematurely implementing higher-level systems.
 
@@ -214,16 +216,17 @@ validation, field-body traversal, and parser recovery are deferred to later pars
 The current implemented parser slices are `sage-parser::parse_application`,
 `sage-parser::parse_entity_at`, `sage-parser::parse_field_at`,
 `sage-parser::parse_indentation_at`, `sage-parser::parse_text_type_at`,
-`sage-parser::parse_whole_number_type_at`, `sage-parser::parse_decimal_number_type_at`, and
-`sage-parser::parse_boolean_type_at`. Application parsing recognizes an application
-declaration; entity parsing recognizes only `A <upper_identifier> has:`; field parsing recognizes
-a lower identifier plus the `as` prefix boundary; indentation parsing recognizes only the
-structural line prefix; and primitive-type parsing recognizes only the exact `text`, `whole
-number`, `decimal number`, or `yes or no` phrase. All are composable by byte offset, return exact
-names/declaration spans where applicable, and intentionally leave later source text unparsed.
-Optional, literal, and initial-clause parsing, full field parsing, full block INDENT/DEDENT
-integration, parent/child indentation validation, AST construction, parser recovery, and
-structured diagnostics remain future work.
+`sage-parser::parse_whole_number_type_at`, `sage-parser::parse_decimal_number_type_at`,
+`sage-parser::parse_boolean_type_at`, and `sage-parser::parse_optional_type_at`. Application
+parsing recognizes an application declaration; entity parsing recognizes only `A <upper_identifier>
+has:`; field parsing recognizes a lower identifier plus the `as` prefix boundary; indentation
+parsing recognizes only the structural line prefix; primitive-type parsing recognizes only the
+exact `text`, `whole number`, `decimal number`, or `yes or no` phrase; and optional-type parsing
+recognizes `optional` plus one exact primitive phrase. All are composable by byte offset, return
+exact names/declaration spans where applicable, and intentionally leave later source text
+unparsed. Nested optionals remain invalid in SAGE 0.1. Literal and initial-clause parsing, full
+field parsing, full block INDENT/DEDENT integration, parent/child indentation validation, AST
+construction, parser recovery, and structured diagnostics remain future work.
 
 The eventual parser should recognize grammar structure, preserve source spans, and recover safely where appropriate. It should not execute user code or perform backend work.
 
