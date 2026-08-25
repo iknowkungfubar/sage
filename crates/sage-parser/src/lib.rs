@@ -1,9 +1,9 @@
 //! Deterministic SAGE source parsing.
 //!
 //! [TECH] This crate implements composable application-declaration, entity-header, field-prefix,
-//! indentation-prefix, and exact `text`, `whole number`, and `decimal number` primitive-type
-//! parser slices. Boolean, optional, literal, initial-value, full AST, recovery, and structured diagnostic
-//! parsing remain planned work.
+//! indentation-prefix, and exact `text`, `whole number`, `decimal number`, and `yes or no`
+//! primitive-type parser slices. Optional-type, literal, initial-clause, full field, AST,
+//! recovery, and structured diagnostic parsing remain planned work.
 //! [ELI5] This is the compiler's first careful-reading step: it recognizes an application's name,
 //! an entity header, a field's `name as` prefix, an exact primitive type, or the spaces at a line's
 //! start and where that declaration appears, without guessing about later text.
@@ -137,6 +137,10 @@ pub enum ParseError {
     MissingDecimalNumberType,
     /// The source at the supplied offset is not the exact `decimal number` primitive type.
     InvalidDecimalNumberType,
+    /// No Boolean primitive type starts at the supplied offset.
+    MissingBooleanType,
+    /// The source at the supplied offset is not the exact `yes or no` primitive type.
+    InvalidBooleanType,
     /// A source offset cannot be represented by the `u32`-based span type.
     SourceTooLarge,
     /// The requested indentation offset is outside the source file.
@@ -615,6 +619,113 @@ pub fn parse_decimal_number_type_at(
     Ok(ParsedDecimalNumberType { span })
 }
 
+/// The exact `yes or no` primitive-type parser result.
+///
+/// This is a parser result containing source provenance, not a semantic type or AST node. The
+/// span covers only the full phrase; following initial clauses and other field text remain
+/// unparsed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ParsedBooleanType {
+    span: Span,
+}
+
+impl ParsedBooleanType {
+    /// Returns the span of the exact `yes or no` phrase.
+    pub const fn span(self) -> Span {
+        self.span
+    }
+}
+
+/// Parses the exact `yes or no` primitive type at a byte offset.
+///
+/// Leading spaces and tabs at the supplied offset are skipped, but newlines are never crossed.
+/// The phrase requires horizontal whitespace between each word and a delimiter after `no`.
+/// Following text is intentionally left for a later parser slice.
+pub fn parse_boolean_type_at(
+    source: &SourceFile,
+    offset: u32,
+) -> Result<ParsedBooleanType, ParseError> {
+    let bytes = source.text().as_bytes();
+    let source_length = u32::try_from(bytes.len()).map_err(|_| ParseError::SourceTooLarge)?;
+    let mut start = usize::try_from(offset).map_err(|_| ParseError::SourceTooLarge)?;
+    if offset > source_length || start > bytes.len() {
+        return Err(ParseError::MissingBooleanType);
+    }
+
+    while bytes
+        .get(start)
+        .is_some_and(|byte| is_horizontal_space(*byte))
+    {
+        start = start.checked_add(1).ok_or(ParseError::SourceTooLarge)?;
+    }
+
+    if bytes
+        .get(start)
+        .is_none_or(|byte| matches!(*byte, b'\n' | b'\r'))
+    {
+        return Err(ParseError::MissingBooleanType);
+    }
+    let yes_end = start
+        .checked_add(b"yes".len())
+        .ok_or(ParseError::SourceTooLarge)?;
+    if bytes.get(start..yes_end) != Some(b"yes") {
+        return Err(ParseError::InvalidBooleanType);
+    }
+
+    let mut separator = yes_end;
+    if !bytes
+        .get(separator)
+        .is_some_and(|byte| is_horizontal_space(*byte))
+    {
+        return Err(ParseError::InvalidBooleanType);
+    }
+    while bytes
+        .get(separator)
+        .is_some_and(|byte| is_horizontal_space(*byte))
+    {
+        separator = separator.checked_add(1).ok_or(ParseError::SourceTooLarge)?;
+    }
+
+    let or_end = separator
+        .checked_add(b"or".len())
+        .ok_or(ParseError::SourceTooLarge)?;
+    if bytes.get(separator..or_end) != Some(b"or") {
+        return Err(ParseError::InvalidBooleanType);
+    }
+
+    separator = or_end;
+    if !bytes
+        .get(separator)
+        .is_some_and(|byte| is_horizontal_space(*byte))
+    {
+        return Err(ParseError::InvalidBooleanType);
+    }
+    while bytes
+        .get(separator)
+        .is_some_and(|byte| is_horizontal_space(*byte))
+    {
+        separator = separator.checked_add(1).ok_or(ParseError::SourceTooLarge)?;
+    }
+
+    let end = separator
+        .checked_add(b"no".len())
+        .ok_or(ParseError::SourceTooLarge)?;
+    if bytes.get(separator..end) != Some(b"no") {
+        return Err(ParseError::InvalidBooleanType);
+    }
+    if bytes
+        .get(end)
+        .is_some_and(|byte| !matches!(*byte, b'\n' | b'\r' | b',' | b' ' | b'\t'))
+    {
+        return Err(ParseError::InvalidBooleanType);
+    }
+
+    let start = u32::try_from(start).map_err(|_| ParseError::SourceTooLarge)?;
+    let end = u32::try_from(end).map_err(|_| ParseError::SourceTooLarge)?;
+    let span = Span::new(source.id(), start, end).ok_or(ParseError::SourceTooLarge)?;
+    Ok(ParsedBooleanType { span })
+}
+
 fn scan_field_name_end(bytes: &[u8], start: usize) -> Result<usize, ParseError> {
     let mut end = start.checked_add(1).ok_or(ParseError::SourceTooLarge)?;
     while bytes.get(end).is_some_and(|byte| is_identifier_tail(*byte)) {
@@ -747,8 +858,9 @@ fn blank_line_newline_length(bytes: &[u8], start: usize) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use super::{
-        parse_application, parse_decimal_number_type_at, parse_entity_at, parse_field_at,
-        parse_indentation_at, parse_text_type_at, parse_whole_number_type_at, ParseError,
+        parse_application, parse_boolean_type_at, parse_decimal_number_type_at, parse_entity_at,
+        parse_field_at, parse_indentation_at, parse_text_type_at, parse_whole_number_type_at,
+        ParseError,
     };
     use sage_syntax::{SourceFile, SourceId};
 
@@ -1289,6 +1401,103 @@ mod tests {
             parse_decimal_number_type_at(&file, 99),
             Err(ParseError::MissingDecimalNumberType)
         );
+    }
+
+    #[test]
+    fn parses_boolean_type_and_preserves_exact_phrase_span() {
+        let file = source("yes or no");
+        let boolean = parse_boolean_type_at(&file, 0).expect("valid Boolean type");
+
+        assert_eq!(boolean.span().source(), file.id());
+        assert_eq!(boolean.span().start(), 0);
+        assert_eq!(boolean.span().end(), 9);
+        assert_eq!(file.slice(boolean.span()), Some("yes or no"));
+    }
+
+    #[test]
+    fn parses_boolean_type_after_field_prefix_and_multiple_spacing() {
+        let file = source("active as \t  yes  \t or \t no, initially anything");
+        let boolean = parse_boolean_type_at(&file, 9).expect("valid Boolean type");
+
+        assert_eq!(boolean.span().start(), 13);
+        assert_eq!(file.slice(boolean.span()), Some("yes  \t or \t no"));
+    }
+
+    #[test]
+    fn accepts_boolean_type_delimiters_without_parsing_following_text() {
+        for suffix in ["\n", "\r\n", ", initially yes", " ", ""] {
+            let file = source(&format!("yes or no{suffix}"));
+            assert!(
+                parse_boolean_type_at(&file, 0).is_ok(),
+                "suffix: {suffix:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn leaves_boolean_initial_clause_text_unparsed() {
+        let file = source("yes or no, initially perhaps");
+        let boolean = parse_boolean_type_at(&file, 0).expect("valid Boolean type");
+
+        assert_eq!(file.slice(boolean.span()), Some("yes or no"));
+    }
+
+    #[test]
+    fn rejects_missing_and_invalid_boolean_types() {
+        for input in ["", "\n", "\r", " \t\r\n"] {
+            assert_eq!(
+                parse_boolean_type_at(&source(input), 0),
+                Err(ParseError::MissingBooleanType)
+            );
+        }
+        for input in [
+            "yesor no",
+            "yes orno",
+            "yes-no",
+            "yes or nos",
+            "yes or nox",
+            "yes or no1",
+            "Yes or no",
+            "yes Or no",
+            "yes or No",
+            "yés or no",
+            "text",
+            "whole number",
+        ] {
+            assert_eq!(
+                parse_boolean_type_at(&source(input), 0),
+                Err(ParseError::InvalidBooleanType)
+            );
+        }
+        for input in ["yes\nor no", "yes or\nno", "yes or\r\nno"] {
+            assert_eq!(
+                parse_boolean_type_at(&source(input), 0),
+                Err(ParseError::InvalidBooleanType)
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_offsets_that_cannot_start_a_boolean_type() {
+        let file = source("yes or no\nyes or no");
+        assert_eq!(
+            parse_boolean_type_at(&file, 9),
+            Err(ParseError::MissingBooleanType)
+        );
+        assert_eq!(
+            parse_boolean_type_at(&file, 99),
+            Err(ParseError::MissingBooleanType)
+        );
+    }
+
+    #[test]
+    fn rejects_boolean_keyword_prefixes_and_missing_separators() {
+        for input in ["yes", "yes or", "yes or ", "yes  or", "yes or  "] {
+            assert_eq!(
+                parse_boolean_type_at(&source(input), 0),
+                Err(ParseError::InvalidBooleanType)
+            );
+        }
     }
 
     #[test]
