@@ -144,27 +144,19 @@ registry policy are intentionally not implemented in `sage-syntax`; IDs remain s
 source-file lifetime and are not file names or offsets. `SourceFile` stores valid UTF-8 source text
 in a Rust `String`. Its `from_utf8` byte-input constructor validates with the standard library and
 rejects invalid UTF-8; no replacement or normalization occurs, so valid input is preserved exactly.
-Byte spans, offset semantics, line and column lookup, and source slicing remain separate roadmap
-concerns. Future source infrastructure must preserve the original text so diagnostics can recover
-source identity, file, and text information without changing its contents.
+The implemented `Span` value type links a `SourceId` to a half-open byte range over those original
+UTF-8 bytes. Future source infrastructure must preserve the original text so diagnostics can
+recover source identity, file, and text information without changing its contents.
 
 ## 7. Source Spans
 
-Source spans are mandatory.
+Source spans are mandatory. `sage-syntax` provides `Span` as an immutable value type containing a
+`SourceId` and a half-open byte range `[start, end)` over the original UTF-8 bytes. Its offsets are
+`u32` values; empty spans are allowed, and `Span::new` rejects reversed ranges where `end < start`.
 
-Conceptually:
-
-```rust
-struct Span {
-    source: SourceId,
-    start: u32,
-    end: u32,
-}
-```
-
-Offsets should have clearly documented semantics.
-
-Half-open ranges `[start, end)` are recommended unless an ADR selects otherwise.
+Checking whether a span's offsets are within a particular `SourceFile`, and converting spans to
+line/column positions or source slices, remain later concerns. A span does not perform automatic
+source lookup.
 
 ## 8. Spanned Values
 
