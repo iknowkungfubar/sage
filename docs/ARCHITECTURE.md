@@ -148,15 +148,29 @@ The implemented `Span` value type links a `SourceId` to a half-open byte range o
 UTF-8 bytes. Future source infrastructure must preserve the original text so diagnostics can
 recover source identity, file, and text information without changing its contents.
 
+`sage-syntax` also provides the public `LineColumn` value type and
+`SourceFile::line_column(offset)`. The lookup accepts offsets from zero through the source's byte
+length, but only at UTF-8 scalar boundaries; invalid or out-of-range offsets return `None`. Its
+line and column values are one-based, with columns counting Unicode scalar values rather than
+bytes. Empty files and EOF at the end of a file map to the current position, initially line 1,
+column 1.
+
+LF (`\\n`), CRLF (`\\r\\n`), and bare CR (`\\r`) each count as one newline. Newline bytes belong to
+the preceding line: offsets at any byte of a newline remain at the preceding line and its current
+column, while an offset after the complete newline sequence starts the next line at column 1.
+The implementation scans the exact source text linearly for each lookup and does not normalize the
+text or add source slicing, parser integration, or caching.
+
 ## 7. Source Spans
 
 Source spans are mandatory. `sage-syntax` provides `Span` as an immutable value type containing a
 `SourceId` and a half-open byte range `[start, end)` over the original UTF-8 bytes. Its offsets are
 `u32` values; empty spans are allowed, and `Span::new` rejects reversed ranges where `end < start`.
 
-Checking whether a span's offsets are within a particular `SourceFile`, and converting spans to
-line/column positions or source slices, remain later concerns. A span does not perform automatic
-source lookup.
+Checking whether a span's offsets are within a particular `SourceFile`, converting spans to
+line/column positions, and source slicing remain separate concerns. `Span` does not perform
+automatic source lookup. A precomputed line map or optimized lookup, and integration from spans
+into line/column diagnostics, remain future concerns.
 
 ## 8. Spanned Values
 
