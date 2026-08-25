@@ -2,8 +2,10 @@
 
 **Project:** SAGE  
 **Meaning:** Software Abstraction and Generation Environment  
-**Status:** Experimental / pre-release  
+**Status:** Experimental / pre-release; repository scaffolded, compiler behavior not yet implemented
 **Document purpose:** Product and language design principles
+
+This document describes SAGE's design targets and roadmap. The repository currently contains the Rust workspace and crate scaffolding; the language kernel is an implementation target, not an implemented compiler. Examples that describe language behavior are target, possible, or future behavior unless explicitly stated otherwise.
 
 ## 1. Overview
 
@@ -81,6 +83,8 @@ SAGE uses a **controlled natural-language style**.
 
 It should resemble structured English while remaining deterministic and formally specified.
 
+A target SAGE application might look like this (the compiler does not yet implement it):
+
 ```sage
 application Inventory
 
@@ -153,7 +157,7 @@ These domains commonly include entities, records, relationships, validation, for
 
 ## 9. Language Model
 
-SAGE source should describe application meaning in increasingly expressive layers.
+SAGE source should describe application meaning in increasingly expressive layers. The following forms are target language behavior, not currently implemented compiler behavior.
 
 ### Applications
 
@@ -179,7 +183,7 @@ A Customer has:
 
 ## 10. Type System Direction
 
-Initial primitive types include:
+The initial target primitive types are planned to include:
 
 ```text
 text
@@ -216,6 +220,8 @@ description as optional text
 ```
 
 ## 12. Initial Values
+
+The following is the target initial-value form:
 
 ```sage
 quantity as whole number, initially 0
@@ -387,7 +393,7 @@ Possible future platforms include Web, Automation, Desktop, Data, and Server pla
 
 ### Phase 0 — Foundation
 
-Repository structure, Rust workspace, CI, documentation, architectural decisions.
+Partially complete: the repository structure, Rust workspace scaffolding, and foundational documentation are present. CI and durable architectural decisions remain foundation work; the compiler stages and CLI are still planned rather than implemented.
 
 ### Phase 1 — Language Kernel
 
@@ -446,9 +452,9 @@ Strong defaults:
 - no opaque automation,
 - no feature imitation without justification.
 
-## 35. Current Minimum Language
+## 35. Target SAGE 0.1 Language Subset
 
-The first usable SAGE subset supports application declarations, entities, fields, primitive types, optional fields, initial values, semantic validation, normalized IR, and diagnostics.
+SAGE 0.1 is the target initial language subset, not an implemented compiler. The planned subset covers application declarations, entities, fields, primitive types, optional fields, initial values, semantic validation, normalized IR, and diagnostics. The current repository provides scaffolding and documentation for these capabilities; it does not yet compile or validate SAGE programs.
 
 ## 36. Success Criteria
 
