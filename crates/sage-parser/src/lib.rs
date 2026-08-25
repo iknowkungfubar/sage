@@ -1,12 +1,12 @@
 //! Deterministic SAGE source parsing.
 //!
 //! [TECH] This crate implements composable application-declaration, entity-header, field-prefix,
-//! indentation-prefix, and exact `text` primitive-type parser slices. Whole-number, decimal,
+//! indentation-prefix, and exact `text` and `whole number` primitive-type parser slices. Decimal,
 //! Boolean, optional, literal, initial-value, full AST, recovery, and structured diagnostic
 //! parsing remain planned work.
 //! [ELI5] This is the compiler's first careful-reading step: it recognizes an application's name,
-//! an entity header, a field's `name as` prefix, the exact `text` type keyword, or the spaces at
-//! a line's start and where that declaration appears, without guessing about later text.
+//! an entity header, a field's `name as` prefix, an exact primitive type, or the spaces at a line's
+//! start and where that declaration appears, without guessing about later text.
 
 use sage_syntax::{SourceFile, Span};
 
@@ -129,6 +129,10 @@ pub enum ParseError {
     MissingTextType,
     /// The source at the supplied offset is not the exact `text` primitive type.
     InvalidTextType,
+    /// No whole-number primitive type starts at the supplied offset.
+    MissingWholeNumberType,
+    /// The source at the supplied offset is not the exact `whole number` primitive type.
+    InvalidWholeNumberType,
     /// A source offset cannot be represented by the `u32`-based span type.
     SourceTooLarge,
     /// The requested indentation offset is outside the source file.
@@ -435,6 +439,92 @@ pub fn parse_text_type_at(source: &SourceFile, offset: u32) -> Result<ParsedText
     Ok(ParsedTextType { span })
 }
 
+/// The exact `whole number` primitive-type parser result.
+///
+/// This is a parser result containing source provenance, not a semantic type or AST node. The
+/// span covers only the full phrase; following initial clauses and other field text remain
+/// unparsed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ParsedWholeNumberType {
+    span: Span,
+}
+
+impl ParsedWholeNumberType {
+    /// Returns the span of the exact `whole number` phrase.
+    pub const fn span(self) -> Span {
+        self.span
+    }
+}
+
+/// Parses the exact `whole number` primitive type at a byte offset.
+///
+/// Leading spaces and tabs at the supplied offset are skipped, but newlines are never crossed.
+/// The phrase requires horizontal whitespace between its words and a delimiter after `number`.
+/// Following text is intentionally left for a later parser slice.
+pub fn parse_whole_number_type_at(
+    source: &SourceFile,
+    offset: u32,
+) -> Result<ParsedWholeNumberType, ParseError> {
+    let bytes = source.text().as_bytes();
+    let source_length = u32::try_from(bytes.len()).map_err(|_| ParseError::SourceTooLarge)?;
+    let mut start = usize::try_from(offset).map_err(|_| ParseError::SourceTooLarge)?;
+    if offset > source_length || start > bytes.len() {
+        return Err(ParseError::MissingWholeNumberType);
+    }
+
+    while bytes
+        .get(start)
+        .is_some_and(|byte| is_horizontal_space(*byte))
+    {
+        start = start.checked_add(1).ok_or(ParseError::SourceTooLarge)?;
+    }
+
+    if bytes
+        .get(start)
+        .is_none_or(|byte| matches!(*byte, b'\n' | b'\r'))
+    {
+        return Err(ParseError::MissingWholeNumberType);
+    }
+    let whole_end = start
+        .checked_add(b"whole".len())
+        .ok_or(ParseError::SourceTooLarge)?;
+    if bytes.get(start..whole_end) != Some(b"whole") {
+        return Err(ParseError::InvalidWholeNumberType);
+    }
+
+    let mut separator = whole_end;
+    if !bytes
+        .get(separator)
+        .is_some_and(|byte| is_horizontal_space(*byte))
+    {
+        return Err(ParseError::InvalidWholeNumberType);
+    }
+    while bytes
+        .get(separator)
+        .is_some_and(|byte| is_horizontal_space(*byte))
+    {
+        separator = separator.checked_add(1).ok_or(ParseError::SourceTooLarge)?;
+    }
+
+    let end = separator
+        .checked_add(b"number".len())
+        .ok_or(ParseError::SourceTooLarge)?;
+    if bytes.get(separator..end) != Some(b"number") {
+        return Err(ParseError::InvalidWholeNumberType);
+    }
+    if bytes
+        .get(end)
+        .is_some_and(|byte| !matches!(*byte, b'\n' | b'\r' | b',' | b' ' | b'\t'))
+    {
+        return Err(ParseError::InvalidWholeNumberType);
+    }
+
+    let start = u32::try_from(start).map_err(|_| ParseError::SourceTooLarge)?;
+    let end = u32::try_from(end).map_err(|_| ParseError::SourceTooLarge)?;
+    let span = Span::new(source.id(), start, end).ok_or(ParseError::SourceTooLarge)?;
+    Ok(ParsedWholeNumberType { span })
+}
+
 fn scan_field_name_end(bytes: &[u8], start: usize) -> Result<usize, ParseError> {
     let mut end = start.checked_add(1).ok_or(ParseError::SourceTooLarge)?;
     while bytes.get(end).is_some_and(|byte| is_identifier_tail(*byte)) {
@@ -568,7 +658,7 @@ fn blank_line_newline_length(bytes: &[u8], start: usize) -> Option<usize> {
 mod tests {
     use super::{
         parse_application, parse_entity_at, parse_field_at, parse_indentation_at,
-        parse_text_type_at, ParseError,
+        parse_text_type_at, parse_whole_number_type_at, ParseError,
     };
     use sage_syntax::{SourceFile, SourceId};
 
@@ -956,6 +1046,80 @@ mod tests {
         assert_eq!(
             parse_text_type_at(&file, 99),
             Err(ParseError::MissingTextType)
+        );
+    }
+
+    #[test]
+    fn parses_whole_number_type_and_preserves_exact_phrase_span() {
+        let file = source("whole number");
+        let whole_number = parse_whole_number_type_at(&file, 0).expect("valid whole number");
+
+        assert_eq!(whole_number.span().source(), file.id());
+        assert_eq!(whole_number.span().start(), 0);
+        assert_eq!(whole_number.span().end(), 12);
+        assert_eq!(file.slice(whole_number.span()), Some("whole number"));
+    }
+
+    #[test]
+    fn parses_whole_number_after_field_prefix_and_multiple_spacing() {
+        let file = source("name as \t  whole  \tnumber, initially anything");
+        let whole_number = parse_whole_number_type_at(&file, 7).expect("valid whole number");
+
+        assert_eq!(whole_number.span().start(), 11);
+        assert_eq!(file.slice(whole_number.span()), Some("whole  \tnumber"));
+    }
+
+    #[test]
+    fn accepts_whole_number_delimiters_without_parsing_following_text() {
+        for suffix in ["\n", "\r\n", ", initially -1", " ", ""] {
+            let file = source(&format!("whole number{suffix}"));
+            assert!(
+                parse_whole_number_type_at(&file, 0).is_ok(),
+                "suffix: {suffix:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_missing_and_invalid_whole_number_types() {
+        for input in ["", "\n", "\r", " \t\r\n"] {
+            assert_eq!(
+                parse_whole_number_type_at(&source(input), 0),
+                Err(ParseError::MissingWholeNumberType)
+            );
+        }
+        for input in [
+            "wholenumber",
+            "whole-number",
+            "whole numbers",
+            "whole numberx",
+            "whole number1",
+            "Whole number",
+            "whole Number",
+            "whole nümber",
+            "text",
+        ] {
+            assert_eq!(
+                parse_whole_number_type_at(&source(input), 0),
+                Err(ParseError::InvalidWholeNumberType)
+            );
+        }
+        assert_eq!(
+            parse_whole_number_type_at(&source("whole\nnumber"), 0),
+            Err(ParseError::InvalidWholeNumberType)
+        );
+    }
+
+    #[test]
+    fn rejects_offsets_that_cannot_start_a_whole_number_type() {
+        let file = source("whole number\nwhole number");
+        assert_eq!(
+            parse_whole_number_type_at(&file, 12),
+            Err(ParseError::MissingWholeNumberType)
+        );
+        assert_eq!(
+            parse_whole_number_type_at(&file, 99),
+            Err(ParseError::MissingWholeNumberType)
         );
     }
 
