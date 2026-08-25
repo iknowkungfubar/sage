@@ -137,9 +137,12 @@ pub struct SourceFile {
 }
 ```
 
-Source IDs, byte spans, line and column lookup, UTF-8 policy, and source slicing are separate
-roadmap concerns. Future source infrastructure must preserve the original text so diagnostics can
-recover file and text information without changing its contents.
+`SourceFile` stores valid UTF-8 source text in a Rust `String`. Its `from_utf8` byte-input
+constructor validates with the standard library and rejects invalid UTF-8; no replacement or
+normalization occurs, so valid input is preserved exactly. Source IDs, spans, byte-offset
+semantics, line and column lookup, and source slicing remain separate roadmap concerns. Future
+source infrastructure must preserve the original text so diagnostics can recover file and text
+information without changing its contents.
 
 ## 7. Source Spans
 

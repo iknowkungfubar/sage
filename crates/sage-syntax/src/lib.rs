@@ -26,6 +26,13 @@ impl SourceFile {
         }
     }
 
+    /// Creates a source file from bytes, rejecting invalid UTF-8.
+    pub fn from_utf8(name: impl Into<String>, bytes: &[u8]) -> Result<Self, std::str::Utf8Error> {
+        let text = std::str::from_utf8(bytes)?;
+
+        Ok(Self::new(name, text))
+    }
+
     /// Returns the source name.
     pub fn name(&self) -> &str {
         &self.name
@@ -63,6 +70,22 @@ mod tests {
         let source = SourceFile::new("empty.sage", "");
 
         assert_eq!(source.text(), "");
+    }
+
+    #[test]
+    fn accepts_valid_utf8_bytes_exactly() {
+        let bytes = b"caf\xc3\xa9\r\n\tname\0 as text\n";
+        let source = SourceFile::from_utf8("inventory.sage", bytes).unwrap();
+
+        assert_eq!(source.text().as_bytes(), bytes);
+        assert_eq!(source.text(), "café\r\n\tname\0 as text\n");
+    }
+
+    #[test]
+    fn rejects_invalid_utf8_bytes() {
+        let result = SourceFile::from_utf8("invalid.sage", b"valid\xff text");
+
+        assert!(result.is_err());
     }
 
     #[test]
