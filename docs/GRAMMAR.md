@@ -2,14 +2,14 @@
 
 **Project:** SAGE  
 **Version:** Initial SAGE 0.1 grammar  
-**Status:** Experimental  
-**Document purpose:** Define the deterministic source grammar for the language kernel
+**Status:** Accepted target grammar for SAGE 0.1; parser implementation pending
+**Document purpose:** Define the deterministic target source grammar for the language kernel
 
 ## 1. Scope
 
-This document defines the formal structure of the current SAGE source language.
+This document normatively defines the accepted target structure of SAGE 0.1 source, independently of the current parser implementation status. It describes the source form that a conforming future parser is expected to recognize; the repository does not yet implement that parser.
 
-The grammar currently covers:
+The target grammar covers:
 
 - application declarations,
 - entity declarations,
@@ -20,7 +20,7 @@ The grammar currently covers:
 - literals,
 - indentation.
 
-If parser behavior and this document disagree, the discrepancy must be resolved rather than allowed to persist.
+When parser implementation begins, its behavior must conform to this document. Any discrepancy between the implementation and this accepted target grammar must be resolved rather than allowed to persist.
 
 ## 2. Grammar Notation
 
@@ -70,7 +70,7 @@ source_file ::=
     EOF
 ```
 
-SAGE 0.1 requires exactly one application declaration before entity declarations.
+The SAGE 0.1 target grammar requires exactly one application declaration before entity declarations.
 
 ## 4. Application Declaration
 
@@ -267,7 +267,7 @@ no
 
 ## 21. Newlines
 
-The parser should accept common platform line endings and normalize them to the same logical newline representation.
+The target parser should accept common platform line endings and normalize them to the same logical newline representation.
 
 ## 22. Horizontal Whitespace
 
@@ -311,7 +311,7 @@ Blank lines inside an indented entity block should not terminate the block by th
 
 ## 26. Comments
 
-SAGE 0.1 currently defines no comment syntax.
+The accepted SAGE 0.1 target currently defines no comment syntax. Comment syntax remains an open decision; do not assume one until it is formally specified.
 
 ## 27. Example Parse
 
@@ -351,7 +351,7 @@ quantity as whole number, initially "zero"
 
 is syntactically valid but semantically invalid.
 
-The parser accepts it; the semantic analyzer rejects it.
+A conforming parser should accept it as syntactically valid; the semantic analyzer should reject it.
 
 ## 29. Duplicate Declarations
 
@@ -365,7 +365,7 @@ Preferred direction:
 
 ## 31. Parser Recovery
 
-Potential synchronization points include newline, next field at current indentation, and next top-level entity declaration.
+Potential synchronization points for the future parser include newline, the next field at the current indentation, and the next top-level entity declaration.
 
 Recovery must not silently invent semantics.
 
