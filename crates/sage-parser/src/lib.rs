@@ -1,10 +1,11 @@
 //! Deterministic SAGE source parsing.
 //!
-//! [TECH] This crate implements composable application-declaration and entity-header parser
-//! slices. Field parsing, indentation, full AST construction, recovery, and diagnostics remain
-//! planned work.
-//! [ELI5] This is the compiler's first careful-reading step: it recognizes an application's name
-//! or an entity header and where that declaration appears, without guessing about later text.
+//! [TECH] This crate implements composable application-declaration, entity-header, and
+//! field-prefix parser slices. Type parsing, initial values, indentation, full AST construction,
+//! recovery, and structured diagnostics remain planned work.
+//! [ELI5] This is the compiler's first careful-reading step: it recognizes an application's name,
+//! an entity header, or a field's `name as` prefix and where that declaration appears, without
+//! guessing about later text.
 
 use sage_syntax::{SourceFile, Span};
 
@@ -22,6 +23,28 @@ impl ParsedApplication {
     }
 
     /// Returns the span of the declaration, excluding its newline.
+    pub const fn span(&self) -> Span {
+        self.span
+    }
+}
+
+/// The field prefix recognized by the current parser slice.
+///
+/// The span covers the field name through the end of the `as` keyword. It excludes the required
+/// whitespace after `as` and any following type text.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParsedField {
+    name: String,
+    span: Span,
+}
+
+impl ParsedField {
+    /// Returns the field's exact source spelling.
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// Returns the span of the parsed `name as` prefix.
     pub const fn span(&self) -> Span {
         self.span
     }
@@ -67,6 +90,18 @@ pub enum ParseError {
     MissingHasClause,
     /// The entity header contains unexpected syntax.
     MalformedEntityHeader,
+    /// No field declaration starts at the supplied offset (after blank lines).
+    MissingFieldDeclaration,
+    /// A field declaration starts, but its name is absent.
+    MissingFieldName,
+    /// A field name is not a valid ASCII lower identifier.
+    InvalidFieldName,
+    /// A valid field name is not followed by the required `as` clause.
+    MissingAsClause,
+    /// The field prefix contains malformed `as` syntax.
+    MalformedFieldPrefix,
+    /// The required whitespace after `as` is not followed by type-start text.
+    MissingFieldTypeStart,
     /// A source offset cannot be represented by the `u32`-based span type.
     SourceTooLarge,
 }
@@ -145,10 +180,116 @@ pub fn parse_application(source: &SourceFile) -> Result<ParsedApplication, Parse
     Ok(ParsedApplication { name, span })
 }
 
-/// Parses an entity header at a byte offset, leaving its field body unparsed.
+/// Parses a field's `name as` prefix at a byte offset, leaving its type text unparsed.
 ///
-/// Zero or more horizontal-space-only blank lines may precede the header. The offset is a byte
+/// Zero or more horizontal-space-only blank lines may precede the prefix. The offset is a byte
 /// offset so callers can compose this slice with later parsing stages.
+pub fn parse_field_at(source: &SourceFile, offset: u32) -> Result<ParsedField, ParseError> {
+    let bytes = source.text().as_bytes();
+    let _source_length = u32::try_from(bytes.len()).map_err(|_| ParseError::SourceTooLarge)?;
+    let mut start = usize::try_from(offset).map_err(|_| ParseError::SourceTooLarge)?;
+    if start > bytes.len() {
+        return Err(ParseError::MissingFieldDeclaration);
+    }
+
+    while let Some(newline_length) = blank_line_newline_length(bytes, start) {
+        start = start
+            .checked_add(newline_length)
+            .ok_or(ParseError::SourceTooLarge)?;
+    }
+
+    let first = match bytes.get(start) {
+        Some(byte) if *byte == b'\n' || *byte == b'\r' => return Err(ParseError::MissingFieldName),
+        Some(byte) => *byte,
+        None => return Err(ParseError::MissingFieldDeclaration),
+    };
+    if !first.is_ascii_lowercase() {
+        return Err(ParseError::InvalidFieldName);
+    }
+
+    let name_end = scan_field_name_end(bytes, start)?;
+    if bytes.get(name_end).is_some_and(|byte| *byte >= 0x80) {
+        return Err(ParseError::InvalidFieldName);
+    }
+    if !bytes
+        .get(name_end)
+        .is_some_and(|byte| is_horizontal_space(*byte))
+    {
+        return Err(ParseError::MissingAsClause);
+    }
+
+    let mut as_start = name_end;
+    while bytes
+        .get(as_start)
+        .is_some_and(|byte| is_horizontal_space(*byte))
+    {
+        as_start = as_start.checked_add(1).ok_or(ParseError::SourceTooLarge)?;
+    }
+    if !bytes[as_start..].starts_with(b"as") {
+        return Err(ParseError::MissingAsClause);
+    }
+
+    let as_end = as_start.checked_add(2).ok_or(ParseError::SourceTooLarge)?;
+    if bytes
+        .get(as_end)
+        .is_some_and(|byte| is_identifier_tail(*byte))
+    {
+        return Err(ParseError::MalformedFieldPrefix);
+    }
+    if !bytes
+        .get(as_end)
+        .is_some_and(|byte| is_horizontal_space(*byte))
+    {
+        return if bytes
+            .get(as_end)
+            .is_some_and(|byte| matches!(*byte, b'\n' | b'\r'))
+        {
+            Err(ParseError::MissingFieldTypeStart)
+        } else {
+            Err(ParseError::MalformedFieldPrefix)
+        };
+    }
+
+    let mut type_start = as_end;
+    while bytes
+        .get(type_start)
+        .is_some_and(|byte| is_horizontal_space(*byte))
+    {
+        type_start = type_start
+            .checked_add(1)
+            .ok_or(ParseError::SourceTooLarge)?;
+    }
+    if bytes
+        .get(type_start)
+        .is_none_or(|byte| matches!(*byte, b'\n' | b'\r'))
+    {
+        return Err(ParseError::MissingFieldTypeStart);
+    }
+
+    let start_u32 = u32::try_from(start).map_err(|_| ParseError::SourceTooLarge)?;
+    let as_end_u32 = u32::try_from(as_end).map_err(|_| ParseError::SourceTooLarge)?;
+    let span = Span::new(source.id(), start_u32, as_end_u32).ok_or(ParseError::SourceTooLarge)?;
+    let name_start_u32 = u32::try_from(start).map_err(|_| ParseError::SourceTooLarge)?;
+    let name_end_u32 = u32::try_from(name_end).map_err(|_| ParseError::SourceTooLarge)?;
+    let name_span =
+        Span::new(source.id(), name_start_u32, name_end_u32).ok_or(ParseError::SourceTooLarge)?;
+    let name = source
+        .slice(name_span)
+        .ok_or(ParseError::SourceTooLarge)?
+        .to_owned();
+
+    Ok(ParsedField { name, span })
+}
+
+fn scan_field_name_end(bytes: &[u8], start: usize) -> Result<usize, ParseError> {
+    let mut end = start.checked_add(1).ok_or(ParseError::SourceTooLarge)?;
+    while bytes.get(end).is_some_and(|byte| is_identifier_tail(*byte)) {
+        end = end.checked_add(1).ok_or(ParseError::SourceTooLarge)?;
+    }
+    Ok(end)
+}
+
+/// Parses an entity header at a byte offset, leaving its field body unparsed.
 pub fn parse_entity_at(source: &SourceFile, offset: u32) -> Result<ParsedEntity, ParseError> {
     let bytes = source.text().as_bytes();
     let _source_length = u32::try_from(bytes.len()).map_err(|_| ParseError::SourceTooLarge)?;
@@ -271,7 +412,7 @@ fn blank_line_newline_length(bytes: &[u8], start: usize) -> Option<usize> {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_application, parse_entity_at, ParseError};
+    use super::{parse_application, parse_entity_at, parse_field_at, ParseError};
     use sage_syntax::{SourceFile, SourceId};
 
     fn source(text: &str) -> SourceFile {
@@ -484,6 +625,74 @@ mod tests {
         assert_eq!(
             parse_entity_at(&source("A Product has:"), 0),
             Err(ParseError::MissingNewline)
+        );
+    }
+
+    #[test]
+    fn parses_field_prefix_and_preserves_exact_name_and_span() {
+        let file = source("quantity_2 as text\n");
+        let field = parse_field_at(&file, 0).expect("valid field prefix");
+
+        assert_eq!(field.name(), "quantity_2");
+        assert_eq!(field.span().source(), file.id());
+        assert_eq!(file.slice(field.span()), Some("quantity_2 as"));
+        assert_eq!(field.span().start(), 0);
+        assert_eq!(field.span().end(), 13);
+    }
+
+    #[test]
+    fn accepts_horizontal_spacing_and_leading_blank_lines() {
+        let file = source(" \t\r\n\t\nname\t\tas\t\ttext\n");
+        let field = parse_field_at(&file, 0).expect("valid field prefix");
+
+        assert_eq!(field.name(), "name");
+        assert_eq!(file.slice(field.span()), Some("name\t\tas"));
+    }
+
+    #[test]
+    fn parses_field_at_composed_nonzero_offset_and_leaves_type_unparsed() {
+        let file = source("header\nname as future type, initially anything\n");
+        let field = parse_field_at(&file, 7).expect("valid field prefix");
+
+        assert_eq!(field.name(), "name");
+        assert_eq!(file.slice(field.span()), Some("name as"));
+    }
+
+    #[test]
+    fn rejects_field_prefix_errors() {
+        for text in ["", "\n", " \t\r\n"] {
+            assert!(matches!(
+                parse_field_at(&source(text), 0),
+                Err(ParseError::MissingFieldDeclaration | ParseError::MissingFieldName)
+            ));
+        }
+        for text in ["Name as text", "1name as text", "naïve as text"] {
+            assert_eq!(
+                parse_field_at(&source(text), 0),
+                Err(ParseError::InvalidFieldName)
+            );
+        }
+        for text in ["nameas text", "nameas text", "name a text", "name as-text"] {
+            let expected = if text == "name as-text" {
+                ParseError::MalformedFieldPrefix
+            } else {
+                ParseError::MissingAsClause
+            };
+            assert_eq!(parse_field_at(&source(text), 0), Err(expected));
+        }
+        assert_eq!(
+            parse_field_at(&source("name as"), 0),
+            Err(ParseError::MalformedFieldPrefix)
+        );
+        for text in ["name as\n", "name as \n", "name as \r\n", "name as \r"] {
+            assert_eq!(
+                parse_field_at(&source(text), 0),
+                Err(ParseError::MissingFieldTypeStart)
+            );
+        }
+        assert_eq!(
+            parse_field_at(&source("name as text"), 99),
+            Err(ParseError::MissingFieldDeclaration)
         );
     }
 }
