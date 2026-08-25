@@ -14,7 +14,7 @@ SAGE uses a deterministic, controlled natural-language style intended to make pr
 
 > **SAGE is in very early development and is not ready for production use.**
 
-The current milestone is the **language kernel**: establishing the parser, semantic model, type-system foundations, intermediate representation, diagnostics, formatter, and command-line tooling.
+The current milestone is the **language kernel**: establishing the parser, semantic model, type-system foundations, intermediate representation, diagnostics, formatter, and command-line tooling. The repository currently contains the Rust workspace and six crate skeletons; implementation of the compiler pipeline and CLI commands is planned work.
 
 The project is intentionally avoiding premature work on web frameworks, databases, deployment, authentication, and other higher-level systems until the core language semantics are stable.
 
@@ -142,11 +142,11 @@ SAGE instead targets **accidental complexity** such as:
 
 The goal is to eliminate or automate those mechanisms when doing so is safe and predictable.
 
-## Current Scope
+## Target Language Scope
 
-The current implementation focuses on the SAGE language frontend.
+The initial language subset is planned to cover the SAGE language frontend.
 
-The first language subset includes:
+The planned initial language subset includes:
 
 - application declarations,
 - entities,
@@ -159,7 +159,7 @@ The first language subset includes:
 - normalized semantic representation,
 - structured diagnostics.
 
-Initial built-in types include:
+The planned initial built-in types include:
 
 ```text
 text
@@ -179,18 +179,15 @@ identifier
 money
 ```
 
-## Current CLI
+## CLI Roadmap
 
-The first useful SAGE commands are:
+The `sage-cli` binary currently is only a placeholder. It does not yet implement `sage check`, `sage explain`, or any other SAGE command; later CLI roadmap issues will implement them.
+
+The following is the planned target interface, not currently working functionality:
 
 ```bash
 sage check <file>
 sage explain <file>
-```
-
-Additional commands such as the following are planned as the implementation matures:
-
-```bash
 sage fmt
 sage run
 sage test
@@ -198,7 +195,7 @@ sage build
 sage deploy
 ```
 
-### `sage check`
+### Planned `sage check`
 
 Validate a SAGE source file.
 
@@ -206,15 +203,9 @@ Validate a SAGE source file.
 sage check examples/inventory.sage
 ```
 
-Expected output for a valid program:
+The intended behavior is a non-zero exit status and a human-readable diagnostic for invalid source.
 
-```text
-✓ Inventory is valid.
-```
-
-Invalid source returns a non-zero exit status and a human-readable diagnostic.
-
-### `sage explain`
+### Planned `sage explain`
 
 Inspect SAGE's normalized understanding of a program.
 
@@ -240,7 +231,7 @@ Entity Product
 
 ## Architecture
 
-The SAGE frontend is designed around a compiler pipeline similar to:
+The planned SAGE frontend is designed around a compiler pipeline similar to:
 
 ```text
 SAGE source
@@ -263,7 +254,7 @@ Type validation
     ▼
 Normalized SAGE IR
     │
-    ├──────────────► sage explain
+    ├──────────────► planned `sage explain`
     │
     ▼
 Future runtimes
@@ -299,13 +290,25 @@ sage/
 │   └── adr/
 │       └── README.md
 ├── crates/
+│   ├── sage-cli/
+│   ├── sage-syntax/
+│   ├── sage-parser/
+│   ├── sage-semantic/
+│   ├── sage-ir/
+│   └── sage-diagnostics/
 ├── examples/
 └── tests/
 ```
 
-## Building SAGE
+## Current Workspace Validation
 
-SAGE's reference implementation is written in Rust.
+SAGE's reference implementation is written in Rust. The current repository can be validated through these Rust workspace commands.
+
+Check the workspace:
+
+```bash
+cargo check --workspace
+```
 
 Build the workspace:
 
@@ -331,19 +334,7 @@ Run Clippy:
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 ```
 
-## Running the Development CLI
-
-```bash
-cargo run -p sage-cli -- check examples/inventory.sage
-cargo run -p sage-cli -- explain examples/inventory.sage
-```
-
-Once the `sage` binary is on the shell path:
-
-```bash
-sage check examples/inventory.sage
-sage explain examples/inventory.sage
-```
+The `sage-cli` binary is currently only a placeholder. The `sage check` and `sage explain` examples below describe the planned CLI interface and do not work yet.
 
 ## Example
 
@@ -359,12 +350,14 @@ A Product has:
     active as yes or no, initially yes
 ```
 
-Then run:
+The planned CLI usage is:
 
 ```bash
 sage check examples/inventory.sage
 sage explain examples/inventory.sage
 ```
+
+These commands are not implemented yet.
 
 ## Diagnostics
 
