@@ -12,10 +12,10 @@ This document defines the target architecture for SAGE and records how the curre
 
 The current development phase is the **language kernel**. The implemented parser slices are
 application parsing, composable entity-header parsing, composable field-prefix parsing,
-indentation-prefix inspection, and exact `text` and `whole number` primitive-type parsing. The
-primitive-type slices preserve spans and leave following initial clauses and other text unparsed.
-Decimal, Boolean, optional, literal, and initial-clause parsing, full field parsing, AST
-construction, parser recovery, and structured diagnostics remain future work.
+indentation-prefix inspection, and exact `text`, `whole number`, and `decimal number`
+primitive-type parsing. The primitive-type slices preserve spans and leave following initial
+clauses and other text unparsed. Boolean, optional, literal, and initial-clause parsing, full
+field parsing, AST construction, parser recovery, and structured diagnostics remain future work.
 
 The target architecture is intentionally designed to support future expansion without prematurely implementing higher-level systems.
 
@@ -217,12 +217,12 @@ The current implemented parser slices are `sage-parser::parse_application`,
 `sage-parser::parse_whole_number_type_at`. Application parsing recognizes an application
 declaration; entity parsing recognizes only `A <upper_identifier> has:`; field parsing recognizes
 a lower identifier plus the `as` prefix boundary; indentation parsing recognizes only the
-structural line prefix; and primitive-type parsing recognizes only the exact `text` or `whole
-number` phrase. All are composable by byte offset, return exact names/declaration spans where
-applicable, and intentionally leave later source text unparsed. Decimal, Boolean, optional,
-literal, and initial-clause parsing, full field parsing, full block INDENT/DEDENT integration,
-parent/child indentation validation, AST construction, parser recovery, and structured diagnostics
-remain future work.
+structural line prefix; and primitive-type parsing recognizes only the exact `text`, `whole
+number`, or `decimal number` phrase. All are composable by byte offset, return exact
+names/declaration spans where applicable, and intentionally leave later source text unparsed.
+Boolean, optional, literal, and initial-clause parsing, full field parsing, full block INDENT/DEDENT
+integration, parent/child indentation validation, AST construction, parser recovery, and
+structured diagnostics remain future work.
 
 The eventual parser should recognize grammar structure, preserve source spans, and recover safely where appropriate. It should not execute user code or perform backend work.
 

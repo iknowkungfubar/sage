@@ -1,8 +1,8 @@
 //! Deterministic SAGE source parsing.
 //!
 //! [TECH] This crate implements composable application-declaration, entity-header, field-prefix,
-//! indentation-prefix, and exact `text` and `whole number` primitive-type parser slices. Decimal,
-//! Boolean, optional, literal, initial-value, full AST, recovery, and structured diagnostic
+//! indentation-prefix, and exact `text`, `whole number`, and `decimal number` primitive-type
+//! parser slices. Boolean, optional, literal, initial-value, full AST, recovery, and structured diagnostic
 //! parsing remain planned work.
 //! [ELI5] This is the compiler's first careful-reading step: it recognizes an application's name,
 //! an entity header, a field's `name as` prefix, an exact primitive type, or the spaces at a line's
@@ -133,6 +133,10 @@ pub enum ParseError {
     MissingWholeNumberType,
     /// The source at the supplied offset is not the exact `whole number` primitive type.
     InvalidWholeNumberType,
+    /// No decimal-number primitive type starts at the supplied offset.
+    MissingDecimalNumberType,
+    /// The source at the supplied offset is not the exact `decimal number` primitive type.
+    InvalidDecimalNumberType,
     /// A source offset cannot be represented by the `u32`-based span type.
     SourceTooLarge,
     /// The requested indentation offset is outside the source file.
@@ -525,6 +529,92 @@ pub fn parse_whole_number_type_at(
     Ok(ParsedWholeNumberType { span })
 }
 
+/// The exact `decimal number` primitive-type parser result.
+///
+/// This is a parser result containing source provenance, not a semantic type or AST node. The
+/// span covers only the full phrase; following initial clauses and other field text remain
+/// unparsed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ParsedDecimalNumberType {
+    span: Span,
+}
+
+impl ParsedDecimalNumberType {
+    /// Returns the span of the exact `decimal number` phrase.
+    pub const fn span(self) -> Span {
+        self.span
+    }
+}
+
+/// Parses the exact `decimal number` primitive type at a byte offset.
+///
+/// Leading spaces and tabs at the supplied offset are skipped, but newlines are never crossed.
+/// The phrase requires horizontal whitespace between its words and a delimiter after `number`.
+/// Following text is intentionally left for a later parser slice.
+pub fn parse_decimal_number_type_at(
+    source: &SourceFile,
+    offset: u32,
+) -> Result<ParsedDecimalNumberType, ParseError> {
+    let bytes = source.text().as_bytes();
+    let source_length = u32::try_from(bytes.len()).map_err(|_| ParseError::SourceTooLarge)?;
+    let mut start = usize::try_from(offset).map_err(|_| ParseError::SourceTooLarge)?;
+    if offset > source_length || start > bytes.len() {
+        return Err(ParseError::MissingDecimalNumberType);
+    }
+
+    while bytes
+        .get(start)
+        .is_some_and(|byte| is_horizontal_space(*byte))
+    {
+        start = start.checked_add(1).ok_or(ParseError::SourceTooLarge)?;
+    }
+
+    if bytes
+        .get(start)
+        .is_none_or(|byte| matches!(*byte, b'\n' | b'\r'))
+    {
+        return Err(ParseError::MissingDecimalNumberType);
+    }
+    let decimal_end = start
+        .checked_add(b"decimal".len())
+        .ok_or(ParseError::SourceTooLarge)?;
+    if bytes.get(start..decimal_end) != Some(b"decimal") {
+        return Err(ParseError::InvalidDecimalNumberType);
+    }
+
+    let mut separator = decimal_end;
+    if !bytes
+        .get(separator)
+        .is_some_and(|byte| is_horizontal_space(*byte))
+    {
+        return Err(ParseError::InvalidDecimalNumberType);
+    }
+    while bytes
+        .get(separator)
+        .is_some_and(|byte| is_horizontal_space(*byte))
+    {
+        separator = separator.checked_add(1).ok_or(ParseError::SourceTooLarge)?;
+    }
+
+    let end = separator
+        .checked_add(b"number".len())
+        .ok_or(ParseError::SourceTooLarge)?;
+    if bytes.get(separator..end) != Some(b"number") {
+        return Err(ParseError::InvalidDecimalNumberType);
+    }
+    if bytes
+        .get(end)
+        .is_some_and(|byte| !matches!(*byte, b'\n' | b'\r' | b',' | b' ' | b'\t'))
+    {
+        return Err(ParseError::InvalidDecimalNumberType);
+    }
+
+    let start = u32::try_from(start).map_err(|_| ParseError::SourceTooLarge)?;
+    let end = u32::try_from(end).map_err(|_| ParseError::SourceTooLarge)?;
+    let span = Span::new(source.id(), start, end).ok_or(ParseError::SourceTooLarge)?;
+    Ok(ParsedDecimalNumberType { span })
+}
+
 fn scan_field_name_end(bytes: &[u8], start: usize) -> Result<usize, ParseError> {
     let mut end = start.checked_add(1).ok_or(ParseError::SourceTooLarge)?;
     while bytes.get(end).is_some_and(|byte| is_identifier_tail(*byte)) {
@@ -657,8 +747,8 @@ fn blank_line_newline_length(bytes: &[u8], start: usize) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use super::{
-        parse_application, parse_entity_at, parse_field_at, parse_indentation_at,
-        parse_text_type_at, parse_whole_number_type_at, ParseError,
+        parse_application, parse_decimal_number_type_at, parse_entity_at, parse_field_at,
+        parse_indentation_at, parse_text_type_at, parse_whole_number_type_at, ParseError,
     };
     use sage_syntax::{SourceFile, SourceId};
 
@@ -1120,6 +1210,84 @@ mod tests {
         assert_eq!(
             parse_whole_number_type_at(&file, 99),
             Err(ParseError::MissingWholeNumberType)
+        );
+    }
+
+    #[test]
+    fn parses_decimal_number_type_and_preserves_exact_phrase_span() {
+        let file = source("decimal number");
+        let decimal = parse_decimal_number_type_at(&file, 0).expect("valid decimal number");
+
+        assert_eq!(decimal.span().source(), file.id());
+        assert_eq!(decimal.span().start(), 0);
+        assert_eq!(decimal.span().end(), 14);
+        assert_eq!(file.slice(decimal.span()), Some("decimal number"));
+    }
+
+    #[test]
+    fn parses_decimal_number_after_field_prefix_and_multiple_spacing() {
+        let file = source("rating as \t  decimal  \tnumber, initially anything");
+        let decimal = parse_decimal_number_type_at(&file, 9).expect("valid decimal number");
+
+        assert_eq!(decimal.span().start(), 13);
+        assert_eq!(file.slice(decimal.span()), Some("decimal  \tnumber"));
+    }
+
+    #[test]
+    fn accepts_decimal_number_delimiters_without_parsing_following_text() {
+        for suffix in ["\n", "\r\n", ", initially 4.5", " ", ""] {
+            let file = source(&format!("decimal number{suffix}"));
+            assert!(
+                parse_decimal_number_type_at(&file, 0).is_ok(),
+                "suffix: {suffix:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_missing_and_invalid_decimal_number_types() {
+        for input in ["", "\n", "\r", " \t\r\n"] {
+            assert_eq!(
+                parse_decimal_number_type_at(&source(input), 0),
+                Err(ParseError::MissingDecimalNumberType)
+            );
+        }
+        for input in [
+            "decimalnumber",
+            "decimal-number",
+            "decimal",
+            "decimal numbers",
+            "decimal numberx",
+            "decimal number1",
+            "Decimal number",
+            "decimal Number",
+            "decimal nümber",
+            "whole number",
+            "text",
+        ] {
+            assert_eq!(
+                parse_decimal_number_type_at(&source(input), 0),
+                Err(ParseError::InvalidDecimalNumberType)
+            );
+        }
+        for input in ["decimal\nnumber", "decimal\r\nnumber"] {
+            assert_eq!(
+                parse_decimal_number_type_at(&source(input), 0),
+                Err(ParseError::InvalidDecimalNumberType)
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_offsets_that_cannot_start_a_decimal_number_type() {
+        let file = source("decimal number\ndecimal number");
+        assert_eq!(
+            parse_decimal_number_type_at(&file, 14),
+            Err(ParseError::MissingDecimalNumberType)
+        );
+        assert_eq!(
+            parse_decimal_number_type_at(&file, 99),
+            Err(ParseError::MissingDecimalNumberType)
         );
     }
 
