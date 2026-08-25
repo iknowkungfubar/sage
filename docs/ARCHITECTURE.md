@@ -127,22 +127,26 @@ For example:
 
 ## 6. Source Representation
 
-The initial source abstraction lives in `sage-syntax` and intentionally owns only a source name and
-exact source text. It is an architectural starting point, not the complete source model.
+The initial source abstraction lives in `sage-syntax` and owns an explicit opaque source identity,
+a source name, and exact source text. It is an architectural starting point, not the complete source
+model.
 
 ```rust
 pub struct SourceFile {
+    id: SourceId,
     name: String,
     text: String,
 }
 ```
 
-`SourceFile` stores valid UTF-8 source text in a Rust `String`. Its `from_utf8` byte-input
-constructor validates with the standard library and rejects invalid UTF-8; no replacement or
-normalization occurs, so valid input is preserved exactly. Source IDs, spans, byte-offset
-semantics, line and column lookup, and source slicing remain separate roadmap concerns. Future
-source infrastructure must preserve the original text so diagnostics can recover file and text
-information without changing its contents.
+`SourceId` is a stable handle supplied externally by the source owner or registry. Allocation and
+registry policy are intentionally not implemented in `sage-syntax`; IDs remain stable for the
+source-file lifetime and are not file names or offsets. `SourceFile` stores valid UTF-8 source text
+in a Rust `String`. Its `from_utf8` byte-input constructor validates with the standard library and
+rejects invalid UTF-8; no replacement or normalization occurs, so valid input is preserved exactly.
+Byte spans, offset semantics, line and column lookup, and source slicing remain separate roadmap
+concerns. Future source infrastructure must preserve the original text so diagnostics can recover
+source identity, file, and text information without changing its contents.
 
 ## 7. Source Spans
 
