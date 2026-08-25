@@ -199,19 +199,26 @@ Lexing responsibilities may include identifiers, keywords, punctuation, string l
 
 ## 10. Indentation
 
-SAGE uses indentation where it improves readability and structural clarity.
+SAGE uses indentation where it improves readability and structural clarity. The implemented
+`sage-parser::parse_indentation_at` primitive deterministically inspects a line prefix at a byte
+offset: it counts leading ASCII spaces, rejects tabs in that structural prefix, and classifies
+blank lines as neutral width zero. It accepts line starts after LF, CRLF, or bare CR, plus offset
+zero, without normalizing source text.
 
-The parser must define indentation behavior deterministically.
+This is deliberately only a line-prefix policy. INDENT/DEDENT stack tracking, parent/child width
+validation, field-body traversal, and parser recovery are deferred to later parser work.
 
 ## 11. Parser Responsibilities
 
 The current implemented parser slices are `sage-parser::parse_application`,
-`sage-parser::parse_entity_at`, and `sage-parser::parse_field_at`. Application parsing recognizes
-an application declaration; entity parsing recognizes only `A <upper_identifier> has:`; and field
-parsing recognizes a lower identifier plus the `as` prefix boundary. All are composable by byte
-offset, return exact names and declaration/prefix spans, and intentionally leave later source text
-unparsed. Type parsing, initial values, indentation, full AST construction, parser recovery, and
-structured diagnostics remain future work.
+`sage-parser::parse_entity_at`, `sage-parser::parse_field_at`, and
+`sage-parser::parse_indentation_at`. Application parsing recognizes an application declaration;
+entity parsing recognizes only `A <upper_identifier> has:`; field parsing recognizes a lower
+identifier plus the `as` prefix boundary; and indentation parsing recognizes only the structural
+line prefix. All are composable by byte offset, return exact names/declaration spans where
+applicable, and intentionally leave later source text unparsed. Type parsing, initial values,
+full block INDENT/DEDENT integration, parent/child indentation validation, field body parsing,
+parser recovery, full AST construction, and structured diagnostics remain future work.
 
 The eventual parser should recognize grammar structure, preserve source spans, and recover safely where appropriate. It should not execute user code or perform backend work.
 
