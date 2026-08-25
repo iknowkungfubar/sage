@@ -8,13 +8,14 @@
 
 ## 1. Scope
 
-This document defines the target architecture for SAGE and records how the current repository scaffolding is organized. It does not describe an end-to-end implementation: the repository contains a virtual Cargo workspace and six crates, with application and entity-header parser slices currently implemented. Compiler stages and CLI commands remain planned work.
+This document defines the target architecture for SAGE and records how the current repository scaffolding is organized. It does not describe an end-to-end implementation: the repository contains a virtual Cargo workspace and six crates, with application, entity-header, field-prefix, indentation-prefix, and exact text-type parser slices currently implemented. Compiler stages and CLI commands remain planned work.
 
 The current development phase is the **language kernel**. The implemented parser slices are
-application parsing, composable entity-header parsing, and composable field-prefix parsing. The
-field slice recognizes a field name plus `as` boundary while leaving type text, initial values,
-indentation, and line termination unparsed; full AST construction, recovery, and structured
-diagnostics remain future work.
+application parsing, composable entity-header parsing, composable field-prefix parsing,
+indentation-prefix inspection, and exact `text` primitive-type parsing. The text slice recognizes
+only the `text` keyword and leaves following initial clauses and other text unparsed. Whole-number,
+decimal, Boolean, optional, literal, and initial-clause parsing, full field parsing, AST
+construction, parser recovery, and structured diagnostics remain future work.
 
 The target architecture is intentionally designed to support future expansion without prematurely implementing higher-level systems.
 
@@ -211,14 +212,16 @@ validation, field-body traversal, and parser recovery are deferred to later pars
 ## 11. Parser Responsibilities
 
 The current implemented parser slices are `sage-parser::parse_application`,
-`sage-parser::parse_entity_at`, `sage-parser::parse_field_at`, and
-`sage-parser::parse_indentation_at`. Application parsing recognizes an application declaration;
-entity parsing recognizes only `A <upper_identifier> has:`; field parsing recognizes a lower
-identifier plus the `as` prefix boundary; and indentation parsing recognizes only the structural
-line prefix. All are composable by byte offset, return exact names/declaration spans where
-applicable, and intentionally leave later source text unparsed. Type parsing, initial values,
-full block INDENT/DEDENT integration, parent/child indentation validation, field body parsing,
-parser recovery, full AST construction, and structured diagnostics remain future work.
+`sage-parser::parse_entity_at`, `sage-parser::parse_field_at`,
+`sage-parser::parse_indentation_at`, and `sage-parser::parse_text_type_at`. Application parsing
+recognizes an application declaration; entity parsing recognizes only `A <upper_identifier>
+has:`; field parsing recognizes a lower identifier plus the `as` prefix boundary; indentation
+parsing recognizes only the structural line prefix; and text-type parsing recognizes only the
+exact `text` keyword. All are composable by byte offset, return exact names/declaration spans
+where applicable, and intentionally leave later source text unparsed. Whole-number, decimal,
+Boolean, optional, literal, and initial-clause parsing, full field parsing, full block
+INDENT/DEDENT integration, parent/child indentation validation, AST construction, parser recovery,
+and structured diagnostics remain future work.
 
 The eventual parser should recognize grammar structure, preserve source spans, and recover safely where appropriate. It should not execute user code or perform backend work.
 
