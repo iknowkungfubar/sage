@@ -12,6 +12,28 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct SourceId(u32);
 
+/// A one-based line and column position in source text.
+///
+/// Lines and columns count from one. Columns count Unicode scalar values rather than UTF-8
+/// bytes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct LineColumn {
+    line: u32,
+    column: u32,
+}
+
+impl LineColumn {
+    /// Returns the one-based line number.
+    pub const fn line(self) -> u32 {
+        self.line
+    }
+
+    /// Returns the one-based column number.
+    pub const fn column(self) -> u32 {
+        self.column
+    }
+}
+
 impl SourceId {
     /// Creates a source identity from a caller-supplied numeric value.
     pub const fn new(value: u32) -> Self {
@@ -78,8 +100,8 @@ impl Span {
 
 /// An owned source identity, name, and exact source text.
 ///
-/// `SourceFile` is intentionally limited to these source data. Line and column lookup and source
-/// slicing from [`Span`] values are separate concerns for later stages.
+/// `SourceFile` is intentionally limited to these source data. Source slicing from [`Span`]
+/// values is a separate concern for later stages.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceFile {
     id: SourceId,
@@ -124,11 +146,57 @@ impl SourceFile {
     pub fn text(&self) -> &str {
         &self.text
     }
+
+    /// Returns the one-based line and column at a UTF-8 byte offset.
+    ///
+    /// The offset must be at a Unicode scalar boundary and no greater than the source length.
+    /// Newline bytes belong to the preceding line: an offset at a newline is reported at the
+    /// current line and column, while an offset after the complete newline sequence begins the
+    /// next line at column one. LF, CRLF, and bare CR are each one newline. EOF is valid and is
+    /// reported as the current position (or line one, column one for an empty file).
+    pub fn line_column(&self, offset: u32) -> Option<LineColumn> {
+        let offset = usize::try_from(offset).ok()?;
+        if offset > self.text.len() || !self.text.is_char_boundary(offset) {
+            return None;
+        }
+
+        let mut line = 1;
+        let mut column = 1;
+        let mut chars = self.text.char_indices().peekable();
+
+        while let Some((index, character)) = chars.next() {
+            if index == offset {
+                return Some(LineColumn { line, column });
+            }
+
+            match character {
+                '\r' => {
+                    if chars.peek().is_some_and(|&(next_index, next_character)| {
+                        next_index == index + 1 && next_character == '\n'
+                    }) {
+                        if offset == index + 1 {
+                            return Some(LineColumn { line, column });
+                        }
+                        chars.next();
+                    }
+                    line += 1;
+                    column = 1;
+                }
+                '\n' => {
+                    line += 1;
+                    column = 1;
+                }
+                _ => column += 1,
+            }
+        }
+
+        Some(LineColumn { line, column })
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{SourceFile, SourceId, Span};
+    use super::{LineColumn, SourceFile, SourceId, Span};
 
     #[test]
     fn source_id_exposes_its_value() {
@@ -226,6 +294,105 @@ mod tests {
         let result = SourceFile::from_utf8(SourceId::new(5), "invalid.sage", b"valid\xff text");
 
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn line_column_supports_empty_files_and_eof() {
+        let empty = SourceFile::new(SourceId::new(9), "empty.sage", "");
+        assert_eq!(
+            empty.line_column(0),
+            Some(LineColumn { line: 1, column: 1 })
+        );
+
+        let source = SourceFile::new(SourceId::new(10), "source.sage", "abc");
+        assert_eq!(
+            source.line_column(3),
+            Some(LineColumn { line: 1, column: 4 })
+        );
+    }
+
+    #[test]
+    fn line_column_counts_ascii_columns() {
+        let source = SourceFile::new(SourceId::new(11), "source.sage", "abc");
+
+        assert_eq!(
+            source.line_column(0),
+            Some(LineColumn { line: 1, column: 1 })
+        );
+        assert_eq!(
+            source.line_column(2),
+            Some(LineColumn { line: 1, column: 3 })
+        );
+    }
+
+    #[test]
+    fn line_column_counts_unicode_scalars_not_bytes() {
+        let source = SourceFile::new(SourceId::new(12), "source.sage", "aé界b");
+
+        assert_eq!(
+            source.line_column(1),
+            Some(LineColumn { line: 1, column: 2 })
+        );
+        assert_eq!(
+            source.line_column(3),
+            Some(LineColumn { line: 1, column: 3 })
+        );
+        assert_eq!(
+            source.line_column(6),
+            Some(LineColumn { line: 1, column: 4 })
+        );
+        assert_eq!(
+            source.line_column(7),
+            Some(LineColumn { line: 1, column: 5 })
+        );
+    }
+
+    #[test]
+    fn line_column_handles_all_supported_line_endings() {
+        let source = SourceFile::new(SourceId::new(13), "source.sage", "a\nb\r\nc\rd");
+
+        assert_eq!(
+            source.line_column(2),
+            Some(LineColumn { line: 2, column: 1 })
+        );
+        assert_eq!(
+            source.line_column(5),
+            Some(LineColumn { line: 3, column: 1 })
+        );
+        assert_eq!(
+            source.line_column(7),
+            Some(LineColumn { line: 4, column: 1 })
+        );
+        assert_eq!(
+            source.line_column(8),
+            Some(LineColumn { line: 4, column: 2 })
+        );
+    }
+
+    #[test]
+    fn line_column_keeps_newline_bytes_on_preceding_line() {
+        let source = SourceFile::new(SourceId::new(14), "source.sage", "a\r\nb");
+
+        assert_eq!(
+            source.line_column(1),
+            Some(LineColumn { line: 1, column: 2 })
+        );
+        assert_eq!(
+            source.line_column(2),
+            Some(LineColumn { line: 1, column: 2 })
+        );
+        assert_eq!(
+            source.line_column(3),
+            Some(LineColumn { line: 2, column: 1 })
+        );
+    }
+
+    #[test]
+    fn line_column_rejects_non_boundary_and_out_of_range_offsets() {
+        let source = SourceFile::new(SourceId::new(15), "source.sage", "aé");
+
+        assert_eq!(source.line_column(2), None);
+        assert_eq!(source.line_column(4), None);
     }
 
     #[test]
