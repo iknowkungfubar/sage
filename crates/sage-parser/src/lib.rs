@@ -1,11 +1,12 @@
 //! Deterministic SAGE source parsing.
 //!
 //! [TECH] This crate implements composable application-declaration, entity-header, field-prefix,
-//! and indentation-prefix parser slices. Type parsing, initial values, full AST construction,
-//! recovery, and structured diagnostics remain planned work.
+//! indentation-prefix, and exact `text` primitive-type parser slices. Whole-number, decimal,
+//! Boolean, optional, literal, initial-value, full AST, recovery, and structured diagnostic
+//! parsing remain planned work.
 //! [ELI5] This is the compiler's first careful-reading step: it recognizes an application's name,
-//! an entity header, a field's `name as` prefix, or the spaces at a line's start and where that
-//! declaration appears, without guessing about later text.
+//! an entity header, a field's `name as` prefix, the exact `text` type keyword, or the spaces at
+//! a line's start and where that declaration appears, without guessing about later text.
 
 use sage_syntax::{SourceFile, Span};
 
@@ -124,6 +125,10 @@ pub enum ParseError {
     MalformedFieldPrefix,
     /// The required whitespace after `as` is not followed by type-start text.
     MissingFieldTypeStart,
+    /// No text primitive type starts at the supplied offset.
+    MissingTextType,
+    /// The source at the supplied offset is not the exact `text` primitive type.
+    InvalidTextType,
     /// A source offset cannot be represented by the `u32`-based span type.
     SourceTooLarge,
     /// The requested indentation offset is outside the source file.
@@ -369,6 +374,67 @@ pub fn parse_field_at(source: &SourceFile, offset: u32) -> Result<ParsedField, P
     Ok(ParsedField { name, span })
 }
 
+/// The exact `text` primitive-type parser result.
+///
+/// This is a parser result containing source provenance, not a semantic type or AST node. The
+/// span covers only the four-byte `text` keyword; following type or field text remains unparsed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ParsedTextType {
+    span: Span,
+}
+
+impl ParsedTextType {
+    /// Returns the span of the exact `text` keyword.
+    pub const fn span(self) -> Span {
+        self.span
+    }
+}
+
+/// Parses the exact `text` primitive type at a byte offset.
+///
+/// Leading spaces and tabs at the supplied offset are skipped, but newlines are never crossed.
+/// Only the keyword is consumed; a following initial clause or any other text is left for a later
+/// parser slice.
+pub fn parse_text_type_at(source: &SourceFile, offset: u32) -> Result<ParsedTextType, ParseError> {
+    let bytes = source.text().as_bytes();
+    let source_length = u32::try_from(bytes.len()).map_err(|_| ParseError::SourceTooLarge)?;
+    let mut start = usize::try_from(offset).map_err(|_| ParseError::SourceTooLarge)?;
+    if offset > source_length || start > bytes.len() {
+        return Err(ParseError::MissingTextType);
+    }
+
+    while bytes
+        .get(start)
+        .is_some_and(|byte| is_horizontal_space(*byte))
+    {
+        start = start.checked_add(1).ok_or(ParseError::SourceTooLarge)?;
+    }
+
+    match bytes.get(start) {
+        None | Some(b'\n') | Some(b'\r') => return Err(ParseError::MissingTextType),
+        Some(b't') => {}
+        Some(_) => return Err(ParseError::InvalidTextType),
+    }
+    let end = start
+        .checked_add(b"text".len())
+        .ok_or(ParseError::SourceTooLarge)?;
+    if bytes.get(start..end) != Some(b"text") {
+        return Err(ParseError::InvalidTextType);
+    }
+
+    if bytes
+        .get(end)
+        .is_some_and(|byte| !matches!(*byte, b'\n' | b'\r' | b',' | b' ' | b'\t'))
+    {
+        return Err(ParseError::InvalidTextType);
+    }
+
+    let start = u32::try_from(start).map_err(|_| ParseError::SourceTooLarge)?;
+    let end = u32::try_from(end).map_err(|_| ParseError::SourceTooLarge)?;
+    let span = Span::new(source.id(), start, end).ok_or(ParseError::SourceTooLarge)?;
+    Ok(ParsedTextType { span })
+}
+
 fn scan_field_name_end(bytes: &[u8], start: usize) -> Result<usize, ParseError> {
     let mut end = start.checked_add(1).ok_or(ParseError::SourceTooLarge)?;
     while bytes.get(end).is_some_and(|byte| is_identifier_tail(*byte)) {
@@ -501,7 +567,8 @@ fn blank_line_newline_length(bytes: &[u8], start: usize) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use super::{
-        parse_application, parse_entity_at, parse_field_at, parse_indentation_at, ParseError,
+        parse_application, parse_entity_at, parse_field_at, parse_indentation_at,
+        parse_text_type_at, ParseError,
     };
     use sage_syntax::{SourceFile, SourceId};
 
@@ -825,6 +892,71 @@ mod tests {
 
         assert_eq!(field.name(), "name");
         assert_eq!(file.slice(field.span()), Some("name as"));
+    }
+
+    #[test]
+    fn parses_text_type_and_preserves_exact_keyword_span() {
+        let file = source("text");
+        let text = parse_text_type_at(&file, 0).expect("valid text type");
+
+        assert_eq!(text.span().source(), file.id());
+        assert_eq!(text.span().start(), 0);
+        assert_eq!(text.span().end(), 4);
+        assert_eq!(file.slice(text.span()), Some("text"));
+    }
+
+    #[test]
+    fn parses_text_type_after_field_prefix_spacing() {
+        let file = source("name as   text, initially anything");
+        let text = parse_text_type_at(&file, 7).expect("valid text type");
+
+        assert_eq!(text.span().start(), 10);
+        assert_eq!(file.slice(text.span()), Some("text"));
+    }
+
+    #[test]
+    fn accepts_text_type_delimiters_without_parsing_following_text() {
+        for suffix in ["\n", "\r\n", ", initially anything", " whatever", ""] {
+            let file = source(&format!("text{suffix}"));
+            assert!(parse_text_type_at(&file, 0).is_ok(), "suffix: {suffix:?}");
+        }
+    }
+
+    #[test]
+    fn rejects_missing_and_invalid_text_types() {
+        for input in ["", "\n", "\r", " \t\r\n"] {
+            assert_eq!(
+                parse_text_type_at(&source(input), 0),
+                Err(ParseError::MissingTextType)
+            );
+        }
+        for input in [
+            "textual",
+            "text_1",
+            "text1",
+            "Text",
+            "tExT",
+            "têxt",
+            "whole number",
+        ] {
+            assert_eq!(
+                parse_text_type_at(&source(input), 0),
+                Err(ParseError::InvalidTextType)
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_offsets_that_cannot_start_a_text_type() {
+        let file = source("text\ntext");
+        assert_eq!(
+            parse_text_type_at(&file, 4),
+            Err(ParseError::MissingTextType)
+        );
+        assert_eq!(
+            parse_text_type_at(&file, 99),
+            Err(ParseError::MissingTextType)
+        );
     }
 
     #[test]
