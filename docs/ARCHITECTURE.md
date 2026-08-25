@@ -159,7 +159,7 @@ LF (`\\n`), CRLF (`\\r\\n`), and bare CR (`\\r`) each count as one newline. Newl
 the preceding line: offsets at any byte of a newline remain at the preceding line and its current
 column, while an offset after the complete newline sequence starts the next line at column 1.
 The implementation scans the exact source text linearly for each lookup and does not normalize the
-text or add source slicing, parser integration, or caching.
+text or add parser integration or caching.
 
 ## 7. Source Spans
 
@@ -167,10 +167,12 @@ Source spans are mandatory. `sage-syntax` provides `Span` as an immutable value 
 `SourceId` and a half-open byte range `[start, end)` over the original UTF-8 bytes. Its offsets are
 `u32` values; empty spans are allowed, and `Span::new` rejects reversed ranges where `end < start`.
 
-Checking whether a span's offsets are within a particular `SourceFile`, converting spans to
-line/column positions, and source slicing remain separate concerns. `Span` does not perform
-automatic source lookup. A precomputed line map or optimized lookup, and integration from spans
-into line/column diagnostics, remain future concerns.
+`SourceFile::slice(span)` is the safe span-to-text boundary. It returns an exact borrowed `&str`
+only when the span's `SourceId` matches the file, both offsets are in bounds, and both offsets are
+UTF-8 scalar boundaries; otherwise it returns `None`. Valid empty spans return `Some("")`. The
+method does not panic, allocate, normalize, or perform lossy conversion, and `Span` remains an
+immutable value that does not perform automatic source lookup. Allocation, caching, and precomputed
+line maps remain out of scope, as does integration with parsers or diagnostics.
 
 ## 8. Spanned Values
 
