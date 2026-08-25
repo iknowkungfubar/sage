@@ -1,13 +1,35 @@
 //! Deterministic SAGE source parsing.
 //!
-//! [TECH] This crate implements composable application-declaration, entity-header, and
-//! field-prefix parser slices. Type parsing, initial values, indentation, full AST construction,
+//! [TECH] This crate implements composable application-declaration, entity-header, field-prefix,
+//! and indentation-prefix parser slices. Type parsing, initial values, full AST construction,
 //! recovery, and structured diagnostics remain planned work.
 //! [ELI5] This is the compiler's first careful-reading step: it recognizes an application's name,
-//! an entity header, or a field's `name as` prefix and where that declaration appears, without
-//! guessing about later text.
+//! an entity header, a field's `name as` prefix, or the spaces at a line's start and where that
+//! declaration appears, without guessing about later text.
 
 use sage_syntax::{SourceFile, Span};
+
+/// The leading indentation of one source line.
+///
+/// `width` is the count of leading ASCII spaces. Blank lines are neutral: they always have width
+/// zero and do not participate in structural indentation decisions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct Indentation {
+    width: u32,
+    blank: bool,
+}
+
+impl Indentation {
+    /// Returns the number of leading ASCII spaces on this content line.
+    pub const fn width(self) -> u32 {
+        self.width
+    }
+
+    /// Returns whether this is a blank, structurally neutral line.
+    pub const fn is_blank(self) -> bool {
+        self.blank
+    }
+}
 
 /// The application declaration recognized by the current parser slice.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -104,6 +126,12 @@ pub enum ParseError {
     MissingFieldTypeStart,
     /// A source offset cannot be represented by the `u32`-based span type.
     SourceTooLarge,
+    /// The requested indentation offset is outside the source file.
+    InvalidIndentationOffset,
+    /// The requested indentation offset is not the beginning of a line.
+    IndentationNotAtLineStart,
+    /// A tab occurs in the structural indentation prefix.
+    TabInIndentation,
 }
 
 /// Parses the first application declaration in a source file.
@@ -178,6 +206,66 @@ pub fn parse_application(source: &SourceFile) -> Result<ParsedApplication, Parse
     // before it, and the rest of the source remains outside this parser slice.
     let _ = newline_length;
     Ok(ParsedApplication { name, span })
+}
+
+/// Parses the indentation prefix at a byte offset that begins a source line.
+///
+/// Leading ASCII spaces define the width. Tabs in that structural prefix are rejected, while
+/// tabs after the first non-whitespace byte are ordinary source content. Blank lines are neutral
+/// and return width zero. This primitive does not maintain an INDENT/DEDENT stack or parse line
+/// content.
+pub fn parse_indentation_at(source: &SourceFile, offset: u32) -> Result<Indentation, ParseError> {
+    let bytes = source.text().as_bytes();
+    let source_length = u32::try_from(bytes.len()).map_err(|_| ParseError::SourceTooLarge)?;
+    if offset > source_length {
+        return Err(ParseError::InvalidIndentationOffset);
+    }
+
+    let start = usize::try_from(offset).map_err(|_| ParseError::InvalidIndentationOffset)?;
+    if start != 0 {
+        let previous = bytes.get(
+            start
+                .checked_sub(1)
+                .ok_or(ParseError::InvalidIndentationOffset)?,
+        );
+        let at_line_start = match previous {
+            Some(b'\n') => true,
+            Some(b'\r') => bytes.get(start) != Some(&b'\n'),
+            _ => false,
+        };
+        if !at_line_start {
+            return Err(ParseError::IndentationNotAtLineStart);
+        }
+    }
+
+    let mut index = start;
+    let mut width = 0_u32;
+    while let Some(byte) = bytes.get(index).copied() {
+        match byte {
+            b' ' => {
+                width = width.checked_add(1).ok_or(ParseError::SourceTooLarge)?;
+                index = index.checked_add(1).ok_or(ParseError::SourceTooLarge)?;
+            }
+            b'\t' => return Err(ParseError::TabInIndentation),
+            b'\n' | b'\r' => {
+                return Ok(Indentation {
+                    width: 0,
+                    blank: true,
+                });
+            }
+            _ => {
+                return Ok(Indentation {
+                    width,
+                    blank: false,
+                });
+            }
+        }
+    }
+
+    Ok(Indentation {
+        width: 0,
+        blank: true,
+    })
 }
 
 /// Parses a field's `name as` prefix at a byte offset, leaving its type text unparsed.
@@ -412,11 +500,92 @@ fn blank_line_newline_length(bytes: &[u8], start: usize) -> Option<usize> {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_application, parse_entity_at, parse_field_at, ParseError};
+    use super::{
+        parse_application, parse_entity_at, parse_field_at, parse_indentation_at, ParseError,
+    };
     use sage_syntax::{SourceFile, SourceId};
 
     fn source(text: &str) -> SourceFile {
         SourceFile::new(SourceId::new(7), "test.sage", text)
+    }
+
+    #[test]
+    fn parses_indentation_widths_and_blank_lines() {
+        for (text, expected_width, blank) in [
+            ("content", 0, false),
+            ("    content", 4, false),
+            ("  content", 2, false),
+            ("      content", 6, false),
+            (" \n", 0, true),
+            ("    \r\n", 0, true),
+            ("  \r", 0, true),
+            ("\n", 0, true),
+            ("", 0, true),
+        ] {
+            let indentation = parse_indentation_at(&source(text), 0).expect("valid line start");
+            assert_eq!(indentation.width(), expected_width);
+            assert_eq!(indentation.is_blank(), blank);
+        }
+    }
+
+    #[test]
+    fn parses_indentation_at_each_supported_line_start() {
+        let file = source("root\n    child\r\n\r    sibling");
+        let child_offset = 5;
+        let sibling_offset = 17;
+
+        assert_eq!(
+            parse_indentation_at(&file, child_offset).unwrap().width(),
+            4
+        );
+        assert!(parse_indentation_at(&file, 16).unwrap().is_blank());
+        assert_eq!(
+            parse_indentation_at(&file, sibling_offset).unwrap().width(),
+            4
+        );
+    }
+
+    #[test]
+    fn rejects_tabs_only_in_structural_prefix() {
+        for text in ["\tcontent", "  \tcontent", "\t\n"] {
+            assert_eq!(
+                parse_indentation_at(&source(text), 0),
+                Err(ParseError::TabInIndentation)
+            );
+        }
+
+        let file = source("content\tstill content");
+        assert_eq!(parse_indentation_at(&file, 0).unwrap().width(), 0);
+    }
+
+    #[test]
+    fn rejects_invalid_indentation_offsets() {
+        let file = source("content\n    child");
+
+        assert_eq!(
+            parse_indentation_at(&file, 3),
+            Err(ParseError::IndentationNotAtLineStart)
+        );
+        assert_eq!(
+            parse_indentation_at(&file, 99),
+            Err(ParseError::InvalidIndentationOffset)
+        );
+        assert_eq!(
+            parse_indentation_at(&file, 9),
+            Err(ParseError::IndentationNotAtLineStart)
+        );
+    }
+
+    #[test]
+    fn indentation_widths_are_orderable_for_future_block_consistency() {
+        let file = source("    child\n      deeper");
+        let child = parse_indentation_at(&file, 0).unwrap();
+        let deeper = parse_indentation_at(&file, 10).unwrap();
+
+        assert!(child < deeper);
+        assert_eq!(child.width(), 4);
+        assert_eq!(deeper.width(), 6);
+        assert!(!child.is_blank());
     }
 
     #[test]

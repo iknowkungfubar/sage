@@ -279,7 +279,9 @@ Indentation policy may prohibit tabs at line beginnings.
 
 ## 23. Indentation Model
 
-Indentation introduces nested blocks.
+Indentation introduces nested blocks. Structural indentation is the count of leading ASCII spaces
+at a line start. Tabs in that leading structural prefix are invalid; a tab after content begins is
+ordinary content.
 
 Conceptually:
 
@@ -291,17 +293,19 @@ quantity as whole number NEWLINE
 DEDENT
 ```
 
-Recommended initial rule:
+A block's child lines must use one consistent indentation width. Blank lines are neutral and do
+not change indentation or terminate a block by themselves. The formatter may eventually
+standardize on four spaces.
 
-> A block's child lines must use the same indentation width.
-
-The formatter should eventually standardize on four spaces.
+The current parser implementation exposes only deterministic line-prefix inspection through
+`parse_indentation_at`; full `INDENT`/`DEDENT` handling and parent/child validation remain future
+parser work.
 
 ## 24. Tabs
 
-Recommended initial policy:
-
-> Tabs are not permitted for structural indentation.
+Tabs are not permitted at line beginnings when they are part of structural indentation. This
+policy applies after any leading spaces as well. Tabs after the first non-whitespace content byte
+are not indentation and are left to later content parsing.
 
 ## 25. Blank Lines
 
