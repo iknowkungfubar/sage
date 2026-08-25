@@ -24,10 +24,62 @@ impl SourceId {
     }
 }
 
+/// A source-linked half-open byte range `[start, end)`.
+///
+/// Spans use byte offsets into the original UTF-8 source text. Empty spans are valid;
+/// reversed ranges are rejected by [`Span::new`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct Span {
+    source: SourceId,
+    start: u32,
+    end: u32,
+}
+
+impl Span {
+    /// Creates a span, returning `None` when `end` precedes `start`.
+    pub const fn new(source: SourceId, start: u32, end: u32) -> Option<Self> {
+        if end < start {
+            None
+        } else {
+            Some(Self { source, start, end })
+        }
+    }
+
+    /// Returns the source identity associated with this span.
+    pub const fn source(self) -> SourceId {
+        self.source
+    }
+
+    /// Returns the inclusive start byte offset.
+    pub const fn start(self) -> u32 {
+        self.start
+    }
+
+    /// Returns the exclusive end byte offset.
+    pub const fn end(self) -> u32 {
+        self.end
+    }
+
+    /// Returns the number of bytes in this span.
+    pub const fn len(self) -> u32 {
+        self.end - self.start
+    }
+
+    /// Returns whether this span contains no bytes.
+    pub const fn is_empty(self) -> bool {
+        self.start == self.end
+    }
+
+    /// Returns whether `offset` is within this half-open span.
+    pub const fn contains(self, offset: u32) -> bool {
+        self.start <= offset && offset < self.end
+    }
+}
+
 /// An owned source identity, name, and exact source text.
 ///
-/// `SourceFile` is intentionally limited to these source data. Byte spans, line and column
-/// lookup, and source slicing are separate concerns for later stages.
+/// `SourceFile` is intentionally limited to these source data. Line and column lookup and source
+/// slicing from [`Span`] values are separate concerns for later stages.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceFile {
     id: SourceId,
@@ -76,13 +128,59 @@ impl SourceFile {
 
 #[cfg(test)]
 mod tests {
-    use super::{SourceFile, SourceId};
+    use super::{SourceFile, SourceId, Span};
 
     #[test]
     fn source_id_exposes_its_value() {
         let id = SourceId::new(42);
 
         assert_eq!(id.get(), 42);
+    }
+
+    #[test]
+    fn span_constructs_and_exposes_accessors() {
+        let source = SourceId::new(42);
+        let span = Span::new(source, 3, 11).expect("valid span");
+
+        assert_eq!(span.source(), source);
+        assert_eq!(span.start(), 3);
+        assert_eq!(span.end(), 11);
+        assert_eq!(span.len(), 8);
+        assert!(!span.is_empty());
+    }
+
+    #[test]
+    fn span_preserves_source_identity() {
+        let first = Span::new(SourceId::new(1), 0, 1).expect("valid span");
+        let second = Span::new(SourceId::new(2), 0, 1).expect("valid span");
+
+        assert_ne!(first, second);
+        assert_eq!(first.source(), SourceId::new(1));
+        assert_eq!(second.source(), SourceId::new(2));
+    }
+
+    #[test]
+    fn span_contains_offsets_using_half_open_boundaries() {
+        let span = Span::new(SourceId::new(1), 3, 7).expect("valid span");
+
+        assert!(!span.contains(2));
+        assert!(span.contains(3));
+        assert!(span.contains(6));
+        assert!(!span.contains(7));
+    }
+
+    #[test]
+    fn span_allows_empty_ranges() {
+        let span = Span::new(SourceId::new(1), 5, 5).expect("empty span is valid");
+
+        assert_eq!(span.len(), 0);
+        assert!(span.is_empty());
+        assert!(!span.contains(5));
+    }
+
+    #[test]
+    fn span_rejects_reversed_ranges() {
+        assert_eq!(Span::new(SourceId::new(1), 8, 7), None);
     }
 
     #[test]
