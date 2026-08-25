@@ -6,6 +6,8 @@ ADRs document important technical decisions that have long-term consequences for
 
 They exist so future contributors can understand not only **what decision was made**, but also **why it was made**.
 
+Each ADR records one durable architectural, language, or tooling decision. It is not a feature checklist, implementation plan, or speculative placeholder.
+
 ## When to Create an ADR
 
 Create an ADR when a decision is:
@@ -86,28 +88,29 @@ Describe serious alternatives and why they were not selected.
 
 ## References
 
-Optional links to relevant design documents, issues, pull requests, specifications, or research.
+Link the motivating issue and the review or implementation pull request, along with relevant design documents, specifications, or research.
 ```
 
 ## ADR Workflow
 
 For a significant architectural change:
 
-1. identify the decision,
-2. create a proposed ADR,
-3. discuss or review the consequences,
-4. implement only after the direction is accepted when practical,
-5. update the ADR status,
-6. keep the ADR permanently in history.
+1. identify the single decision and its motivating issue,
+2. create a proposed ADR and link the issue in `References`,
+3. discuss or review the consequences and link the review or implementation PR,
+4. propose the ADR before implementation when practical,
+5. implement only after the direction is accepted when practical,
+6. update the ADR status after the decision,
+7. keep the ADR permanently in history.
 
-Rejected ADRs should generally remain in the repository.
+Rejected and superseded ADRs remain in the repository so the decision history is preserved.
 
 ## Relationship to Other Documentation
 
 - `docs/DESIGN.md` explains product and language philosophy.
 - `docs/LANGUAGE.md` defines accepted language semantics.
 - `docs/GRAMMAR.md` defines accepted source grammar.
-- `docs/ARCHITECTURE.md` describes current technical architecture.
+- `docs/ARCHITECTURE.md` describes the target architecture and the current repository scaffolding/status.
 - ADRs explain why important architectural choices were made.
 
 If an accepted ADR changes architecture or language behavior, update the appropriate primary documentation as well.
@@ -132,6 +135,8 @@ Instead:
 4. link the two.
 
 ## Initial ADR Candidates
+
+This repository may have no ADR files yet. Candidate topics are not ADRs until the underlying decision has actually been made; do not create placeholder records.
 
 Likely early ADR topics include:
 
