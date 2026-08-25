@@ -3,5 +3,25 @@
 version = 4
 
 [[package]]
-name = "sage"
+name = "sage-cli"
+version = "0.1.0"
+
+[[package]]
+name = "sage-diagnostics"
+version = "0.1.0"
+
+[[package]]
+name = "sage-ir"
+version = "0.1.0"
+
+[[package]]
+name = "sage-parser"
+version = "0.1.0"
+
+[[package]]
+name = "sage-semantic"
+version = "0.1.0"
+
+[[package]]
+name = "sage-syntax"
 version = "0.1.0"
