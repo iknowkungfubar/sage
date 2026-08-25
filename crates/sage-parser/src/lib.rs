@@ -1,9 +1,10 @@
 //! Deterministic SAGE source parsing.
 //!
-//! [TECH] This crate currently implements the application-declaration parser slice. Entity
-//! parsing, the full AST, recovery, and diagnostics are planned for later roadmap issues.
-//! [ELI5] This is the compiler's first careful-reading step: it recognizes the application's name
-//! and where that declaration appears, without guessing about the rest of the file.
+//! [TECH] This crate implements composable application-declaration and entity-header parser
+//! slices. Field parsing, indentation, full AST construction, recovery, and diagnostics remain
+//! planned work.
+//! [ELI5] This is the compiler's first careful-reading step: it recognizes an application's name
+//! or an entity header and where that declaration appears, without guessing about later text.
 
 use sage_syntax::{SourceFile, Span};
 
@@ -26,7 +27,26 @@ impl ParsedApplication {
     }
 }
 
-/// Deterministic syntax failures from [`parse_application`].
+/// The entity header recognized by the current parser slice.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParsedEntity {
+    name: String,
+    span: Span,
+}
+
+impl ParsedEntity {
+    /// Returns the entity's exact source spelling.
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// Returns the span from `A` through `has:`, excluding its newline.
+    pub const fn span(&self) -> Span {
+        self.span
+    }
+}
+
+/// Deterministic syntax failures from the parser slices.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ParseError {
     /// The source does not begin with an application declaration after blank lines.
@@ -37,6 +57,16 @@ pub enum ParseError {
     InvalidUpperIdentifier,
     /// The application declaration is not terminated by LF, CRLF, or bare CR.
     MissingNewline,
+    /// No entity declaration starts at the supplied offset (after blank lines).
+    MissingEntityDeclaration,
+    /// An entity declaration starts, but its name is absent.
+    MissingEntityName,
+    /// An entity name is not a valid ASCII upper identifier.
+    InvalidEntityName,
+    /// A valid entity name is not followed by the required `has:` clause.
+    MissingHasClause,
+    /// The entity header contains unexpected syntax.
+    MalformedEntityHeader,
     /// A source offset cannot be represented by the `u32`-based span type.
     SourceTooLarge,
 }
@@ -115,6 +145,99 @@ pub fn parse_application(source: &SourceFile) -> Result<ParsedApplication, Parse
     Ok(ParsedApplication { name, span })
 }
 
+/// Parses an entity header at a byte offset, leaving its field body unparsed.
+///
+/// Zero or more horizontal-space-only blank lines may precede the header. The offset is a byte
+/// offset so callers can compose this slice with later parsing stages.
+pub fn parse_entity_at(source: &SourceFile, offset: u32) -> Result<ParsedEntity, ParseError> {
+    let bytes = source.text().as_bytes();
+    let _source_length = u32::try_from(bytes.len()).map_err(|_| ParseError::SourceTooLarge)?;
+    let mut start = usize::try_from(offset).map_err(|_| ParseError::SourceTooLarge)?;
+    if start > bytes.len() {
+        return Err(ParseError::MissingEntityDeclaration);
+    }
+
+    while let Some(newline_length) = blank_line_newline_length(bytes, start) {
+        start += newline_length;
+    }
+
+    if bytes.get(start) != Some(&b'A') {
+        return Err(ParseError::MissingEntityDeclaration);
+    }
+
+    let after_a = start + 1;
+    if !bytes
+        .get(after_a)
+        .is_some_and(|byte| is_horizontal_space(*byte))
+    {
+        return Err(ParseError::MissingEntityName);
+    }
+
+    let mut name_start = after_a;
+    while bytes
+        .get(name_start)
+        .is_some_and(|byte| is_horizontal_space(*byte))
+    {
+        name_start += 1;
+    }
+    if bytes.get(name_start).is_none() || matches!(bytes[name_start], b'\n' | b'\r') {
+        return Err(ParseError::MissingEntityName);
+    }
+    if !bytes[name_start].is_ascii_uppercase() {
+        return Err(ParseError::InvalidEntityName);
+    }
+
+    let mut name_end = name_start + 1;
+    while bytes
+        .get(name_end)
+        .is_some_and(|byte| is_identifier_tail(*byte))
+    {
+        name_end += 1;
+    }
+    if bytes.get(name_end).is_none() || matches!(bytes[name_end], b'\n' | b'\r') {
+        return Err(ParseError::MissingHasClause);
+    }
+    if !is_horizontal_space(bytes[name_end]) {
+        return Err(ParseError::InvalidEntityName);
+    }
+
+    let mut clause_start = name_end;
+    while bytes
+        .get(clause_start)
+        .is_some_and(|byte| is_horizontal_space(*byte))
+    {
+        clause_start += 1;
+    }
+    if !bytes[clause_start..].starts_with(b"has:") {
+        return if bytes[clause_start..].starts_with(b"has") {
+            Err(ParseError::MalformedEntityHeader)
+        } else {
+            Err(ParseError::MissingHasClause)
+        };
+    }
+    let end = clause_start + b"has:".len();
+    let newline_length = match bytes.get(end) {
+        Some(b'\n') | Some(b'\r') => newline_length_at(bytes, end),
+        Some(_) => return Err(ParseError::MalformedEntityHeader),
+        None => return Err(ParseError::MissingNewline),
+    };
+
+    let start_u32 = u32::try_from(start).map_err(|_| ParseError::SourceTooLarge)?;
+    let end_u32 = u32::try_from(end).map_err(|_| ParseError::SourceTooLarge)?;
+    let span = Span::new(source.id(), start_u32, end_u32).ok_or(ParseError::SourceTooLarge)?;
+    let name_start_u32 = u32::try_from(name_start).map_err(|_| ParseError::SourceTooLarge)?;
+    let name_end_u32 = u32::try_from(name_end).map_err(|_| ParseError::SourceTooLarge)?;
+    let name_span =
+        Span::new(source.id(), name_start_u32, name_end_u32).ok_or(ParseError::SourceTooLarge)?;
+    let name = source
+        .slice(name_span)
+        .ok_or(ParseError::SourceTooLarge)?
+        .to_owned();
+
+    let _ = newline_length;
+    Ok(ParsedEntity { name, span })
+}
+
 fn is_horizontal_space(byte: u8) -> bool {
     matches!(byte, b' ' | b'\t')
 }
@@ -148,7 +271,7 @@ fn blank_line_newline_length(bytes: &[u8], start: usize) -> Option<usize> {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_application, ParseError};
+    use super::{parse_application, parse_entity_at, ParseError};
     use sage_syntax::{SourceFile, SourceId};
 
     fn source(text: &str) -> SourceFile {
@@ -254,6 +377,112 @@ mod tests {
     fn rejects_missing_final_newline() {
         assert_eq!(
             parse_application(&source("application Inventory")),
+            Err(ParseError::MissingNewline)
+        );
+    }
+
+    #[test]
+    fn parses_entity_header_and_preserves_exact_name_and_span() {
+        let file = source("A Product has:\n");
+        let entity = parse_entity_at(&file, 0).expect("valid entity header");
+
+        assert_eq!(entity.name(), "Product");
+        assert_eq!(entity.span().source(), file.id());
+        assert_eq!(file.slice(entity.span()), Some("A Product has:"));
+        assert_eq!(entity.span().start(), 0);
+        assert_eq!(entity.span().end(), 14);
+    }
+
+    #[test]
+    fn accepts_entity_newline_styles_and_horizontal_spacing() {
+        for text in [
+            "A\tProduct  has:\n",
+            "A Product has:\r\n",
+            "A Product has:\r",
+        ] {
+            let file = source(text);
+            assert_eq!(
+                parse_entity_at(&file, 0).expect("valid entity").name(),
+                "Product"
+            );
+        }
+    }
+
+    #[test]
+    fn skips_leading_blank_separator_lines() {
+        let file = source(" \t\r\n\t\nA Product has:\n");
+        let entity = parse_entity_at(&file, 0).expect("valid entity");
+
+        assert_eq!(entity.span().start(), 6);
+        assert_eq!(file.slice(entity.span()), Some("A Product has:"));
+    }
+
+    #[test]
+    fn leaves_later_entity_body_text_unparsed() {
+        let file = source("A Product has:\n    name as text\n");
+        assert!(parse_entity_at(&file, 0).is_ok());
+    }
+
+    #[test]
+    fn parses_entity_at_composed_offset_after_application() {
+        let file = source("application Inventory\n\nA Product has:\n");
+        let application = parse_application(&file).expect("valid application");
+        let entity = parse_entity_at(&file, application.span().end()).expect("valid entity");
+
+        assert_eq!(entity.name(), "Product");
+        assert_eq!(entity.span().start(), 23);
+    }
+
+    #[test]
+    fn rejects_application_at_entity_offset() {
+        assert_eq!(
+            parse_entity_at(&source("application Inventory\n"), 0),
+            Err(ParseError::MissingEntityDeclaration)
+        );
+    }
+
+    #[test]
+    fn rejects_missing_and_invalid_entity_names() {
+        for text in ["A\n", "A   \r\n", "AProduct has:\n"] {
+            assert!(matches!(
+                parse_entity_at(&source(text), 0),
+                Err(ParseError::MissingEntityName)
+            ));
+        }
+        for text in ["A product has:\n", "A 1Product has:\n", "A Café has:\n"] {
+            assert!(matches!(
+                parse_entity_at(&source(text), 0),
+                Err(ParseError::InvalidEntityName)
+            ));
+        }
+    }
+
+    #[test]
+    fn rejects_missing_or_malformed_has_clause() {
+        assert_eq!(
+            parse_entity_at(&source("A Product\n"), 0),
+            Err(ParseError::MissingHasClause)
+        );
+        assert_eq!(
+            parse_entity_at(&source("A Product is:\n"), 0),
+            Err(ParseError::MissingHasClause)
+        );
+        assert_eq!(
+            parse_entity_at(&source("A Product hasx:\n"), 0),
+            Err(ParseError::MalformedEntityHeader)
+        );
+    }
+
+    #[test]
+    fn rejects_trailing_header_text_and_missing_newline() {
+        for text in ["A Product has: \n", "A Product has: extra\n"] {
+            assert_eq!(
+                parse_entity_at(&source(text), 0),
+                Err(ParseError::MalformedEntityHeader)
+            );
+        }
+        assert_eq!(
+            parse_entity_at(&source("A Product has:"), 0),
             Err(ParseError::MissingNewline)
         );
     }
