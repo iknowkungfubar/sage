@@ -21,6 +21,8 @@ If the change affects a documented architecture decision, also read the relevant
 
 ## Development Requirements
 
+The repository currently contains a virtual Cargo workspace and six minimal crate skeletons. Compiler behavior and CLI commands remain planned work; the `sage-cli` binary is currently only a placeholder.
+
 The SAGE reference implementation uses Rust.
 
 Use the project's configured toolchain when one exists. Otherwise use the current stable Rust toolchain.
@@ -44,7 +46,7 @@ cargo build --workspace
 cargo test --workspace
 ```
 
-Focused package tests are encouraged during development:
+Focused package tests are encouraged during development, even though the current packages are minimal skeletons and do not yet contain compiler behavior:
 
 ```bash
 cargo test -p sage-parser
@@ -53,8 +55,15 @@ cargo test -p sage-semantic
 
 ## Formatting
 
+Apply formatting when needed:
+
 ```bash
 cargo fmt --all
+```
+
+Check formatting with the workspace-wide validation form:
+
+```bash
 cargo fmt --all -- --check
 ```
 
@@ -71,6 +80,7 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings
 Before considering a normal code change complete:
 
 ```bash
+cargo check --workspace
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace
@@ -231,6 +241,8 @@ A reproducible bug fix should normally include a test that fails before the fix 
 
 ## Canonical Example
 
+The following is the planned canonical inventory source and target behavior; it is not currently compiled by the repository:
+
 ```sage
 application Inventory
 
@@ -241,12 +253,14 @@ A Product has:
     active as yes or no, initially yes
 ```
 
-Expected:
+The planned CLI interface is:
 
 ```bash
 sage check examples/inventory.sage
 sage explain examples/inventory.sage
 ```
+
+These are planned interfaces, not commands contributors can claim are currently working. The `sage-cli` binary remains a placeholder.
 
 ## Rust Style
 
@@ -277,6 +291,14 @@ Use ADRs for durable architectural decisions.
 Read `docs/adr/README.md` before creating one.
 
 ## Pull Requests
+
+Before any GitHub write, run the repository gate:
+
+```bash
+turinos gate --repo <path> --intent "..."
+```
+
+The operator manually merges pull requests. Direct push and PR commands are not the normal contribution path.
 
 A good pull request should explain:
 
