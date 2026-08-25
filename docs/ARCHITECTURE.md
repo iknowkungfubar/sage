@@ -8,7 +8,7 @@
 
 ## 1. Scope
 
-This document defines the target architecture for SAGE and records how the current repository scaffolding is organized. It does not describe an end-to-end implementation: the repository currently contains a virtual Cargo workspace and six minimal crate skeletons, while compiler stages and CLI commands remain planned work.
+This document defines the target architecture for SAGE and records how the current repository scaffolding is organized. It does not describe an end-to-end implementation: the repository contains a virtual Cargo workspace and six crates, with only the first parser slice currently implemented. Compiler stages and CLI commands remain planned work.
 
 The current development phase is the **language kernel**.
 
@@ -201,9 +201,9 @@ The parser must define indentation behavior deterministically.
 
 ## 11. Parser Responsibilities
 
-The parser should recognize grammar structure, preserve source spans, and recover safely where appropriate.
+The current implemented parser slice is `sage-parser::parse_application`. It deterministically recognizes an application declaration, returns its exact name and declaration span, and intentionally leaves later source text unparsed. Entity parsing, full AST construction, parser recovery, and structured diagnostics remain future work.
 
-It should not execute user code or perform backend work.
+The eventual parser should recognize grammar structure, preserve source spans, and recover safely where appropriate. It should not execute user code or perform backend work.
 
 ## 12. Parse Recovery
 
@@ -362,7 +362,7 @@ SAGE-SEMANTIC-001
 
 The planned CLI should parse arguments, load source, invoke compiler APIs, render diagnostics or results, and return meaningful exit status.
 
-The current `sage-cli` is a placeholder and does not implement these commands. The CLI should not contain semantic compiler logic.
+The current `sage-cli` is a placeholder and does not implement these commands. The CLI should not contain semantic compiler logic. The parser currently exposes only the application-declaration slice; it is not yet a full-file parser.
 
 ## 27. Planned `sage check`
 

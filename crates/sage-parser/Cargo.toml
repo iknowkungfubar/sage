@@ -2,3 +2,6 @@
 name = "sage-parser"
 version = "0.1.0"
 edition = "2021"
+
+[dependencies]
+sage-syntax = { path = "../sage-syntax" }
