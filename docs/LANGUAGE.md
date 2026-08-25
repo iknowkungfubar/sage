@@ -2,29 +2,31 @@
 
 **Project:** SAGE  
 **Meaning:** Software Abstraction and Generation Environment  
-**Status:** Experimental / pre-release  
-**Document purpose:** Define the currently accepted SAGE language semantics
+**Status:** Accepted target specification for SAGE 0.1; compiler implementation pending
+**Document purpose:** Normatively define the accepted SAGE 0.1 language semantics
 
 ## 1. Purpose
 
-This document defines the SAGE language as it exists or has been formally accepted for the current implementation milestone.
+This document is the normative specification for the accepted SAGE 0.1 language. It defines what valid SAGE source means, independently of whether the compiler has implemented that behavior yet.
 
 It answers:
 
 > **What does valid SAGE source mean?**
 
+The rules in this document are accepted language semantics, not a claim that the current Rust crate scaffold implements them. The executable compiler and CLI remain planned work.
+
 - `DESIGN.md` describes philosophy and long-term direction.
-- `LANGUAGE.md` describes accepted language behavior.
+- `LANGUAGE.md` normatively describes accepted language behavior.
 - `GRAMMAR.md` defines formal source structure.
-- `ARCHITECTURE.md` describes how the compiler implements the language.
+- `ARCHITECTURE.md` describes the target compiler architecture and current implementation status.
 
 Proposed syntax should not be added here until formally accepted.
 
 ## 2. Current Language Version
 
-The initial language kernel is referred to as **SAGE 0.1**.
+The initial language kernel is specified as **SAGE 0.1**.
 
-It currently defines:
+The SAGE 0.1 specification defines:
 
 - application declarations,
 - entity declarations,
@@ -35,7 +37,7 @@ It currently defines:
 - deterministic naming,
 - basic semantic validation.
 
-It does not yet define executable statements, queries, functions, persistence, UI, networking, or concurrency.
+The current Rust crate scaffold does not yet implement executable compiler behavior for this specification. SAGE 0.1 does not define executable statements, queries, functions, persistence, UI, networking, or concurrency.
 
 ## 3. Source Files
 
