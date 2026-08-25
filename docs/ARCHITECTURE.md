@@ -2,19 +2,21 @@
 
 **Project:** SAGE  
 **Meaning:** Software Abstraction and Generation Environment  
-**Status:** Initial compiler architecture  
+**Status:** Target architecture plus current repository scaffolding
 **Implementation language:** Rust  
-**Document purpose:** Describe the implemented and intended technical architecture of the SAGE compiler and tooling
+**Document purpose:** Describe the target technical architecture of the SAGE compiler and tooling, and distinguish it from the current scaffold
 
 ## 1. Scope
 
-This document describes the architecture of the current SAGE implementation.
+This document defines the target architecture for SAGE and records how the current repository scaffolding is organized. It does not describe an end-to-end implementation: the repository currently contains a virtual Cargo workspace and six minimal crate skeletons, while compiler stages and CLI commands remain planned work.
 
 The current development phase is the **language kernel**.
 
-The architecture is intentionally designed to support future expansion without prematurely implementing higher-level systems.
+The target architecture is intentionally designed to support future expansion without prematurely implementing higher-level systems.
 
 ## 2. Architectural Overview
+
+The following is the **planned target pipeline**, not an active end-to-end pipeline in the current scaffold. Its stages and boundaries guide future implementation.
 
 ```text
 ┌─────────────────────┐
@@ -84,12 +86,18 @@ The language frontend should not depend on a web framework, SQL, JavaScript, Rus
 
 ## 4. Repository Structure
 
+The current repository has the following structure. The six crates are minimal skeletons; their target ownership boundaries are described below and do not imply implemented compiler behavior.
+
 ```text
 sage/
+├── .gitignore
 ├── AGENTS.md
+├── Cargo.lock
 ├── Cargo.toml
-├── README.md
+├── CONTRIBUTING.md
 ├── LICENSE
+├── README.md
+├── ROADMAP.md
 ├── docs/
 │   ├── DESIGN.md
 │   ├── ARCHITECTURE.md
@@ -119,7 +127,7 @@ For example:
 
 ## 6. Source Representation
 
-The compiler requires a stable source abstraction.
+The target compiler requires a stable source abstraction; this is an architectural requirement, not a claim about the current scaffold.
 
 Conceptually:
 
@@ -311,7 +319,7 @@ As the language grows, declarations should likely use stable internal IDs when r
 
 ## 24. Diagnostics Architecture
 
-Diagnostics should be represented structurally.
+The target compiler should represent diagnostics structurally. The current crates do not yet implement this pipeline.
 
 Conceptually:
 
@@ -340,13 +348,15 @@ SAGE-TYPE-001
 SAGE-SEMANTIC-001
 ```
 
-## 26. CLI Architecture
+## 26. CLI Architecture (Planned)
 
-The CLI should parse arguments, load source, invoke compiler APIs, render diagnostics or results, and return meaningful exit status.
+The planned CLI should parse arguments, load source, invoke compiler APIs, render diagnostics or results, and return meaningful exit status.
 
-The CLI should not contain semantic compiler logic.
+The current `sage-cli` is a placeholder and does not implement these commands. The CLI should not contain semantic compiler logic.
 
-## 27. `sage check`
+## 27. Planned `sage check`
+
+The following is the conceptual target flow; `sage check` is not implemented in the current scaffold.
 
 Conceptual flow:
 
@@ -364,19 +374,19 @@ IR validation
 success or diagnostics
 ```
 
-## 28. `sage explain`
+## 28. Planned `sage explain`
 
-`explain` renders semantic meaning in a human-oriented form.
+`explain` is intended to render semantic meaning in a human-oriented form. It is not implemented in the current scaffold.
 
 Do not simply print raw Rust debug structures.
 
-## 29. Formatter Architecture
+## 29. Planned Formatter Architecture
 
-The formatter should be deterministic, idempotent, and semantics preserving.
+The future formatter should be deterministic, idempotent, and semantics preserving. No formatter is implemented in the current scaffold.
 
-## 30. Compiler API
+## 30. Planned Compiler API
 
-The compiler should eventually expose a reusable library interface independent of the CLI.
+The compiler should eventually expose a reusable library interface independent of the CLI. No compiler API or pipeline is implemented in the current scaffold.
 
 ## 31. Error Handling
 
@@ -408,7 +418,10 @@ A Product has:
 
 ## 36. Build and Validation
 
+These commands validate the current Rust workspace scaffold and remain the workspace-wide checks as implementation proceeds:
+
 ```bash
+cargo check --workspace
 cargo build --workspace
 cargo test --workspace
 cargo fmt --all -- --check
@@ -490,9 +503,11 @@ Avoid:
 - premature generalization,
 - premature performance optimization.
 
-## 49. Current Architecture Definition of Done
+## 49. Target Architecture Definition of Done
 
-The initial compiler architecture is established when SAGE can load source, preserve spans, parse applications/entities/fields, resolve primitive types, represent optional fields, validate initial values, detect duplicates, lower to normalized IR, produce structured diagnostics, support `sage check`, support `sage explain`, and pass relevant tests.
+The target language-kernel architecture is complete when SAGE can load source, preserve spans, parse applications/entities/fields, resolve primitive types, represent optional fields, validate initial values, detect duplicates, lower to normalized IR, produce structured diagnostics, support `sage check`, support `sage explain`, and pass relevant tests.
+
+The current repository scaffold does not meet this definition of done yet. It provides the workspace, six crate skeletons, and documentation; the compiler pipeline, semantic behavior, formatter, compiler API, and CLI commands remain to be implemented.
 
 ## 50. Architectural North Star
 
