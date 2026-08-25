@@ -127,24 +127,19 @@ For example:
 
 ## 6. Source Representation
 
-The target compiler requires a stable source abstraction; this is an architectural requirement, not a claim about the current scaffold.
-
-Conceptually:
+The initial source abstraction lives in `sage-syntax` and intentionally owns only a source name and
+exact source text. It is an architectural starting point, not the complete source model.
 
 ```rust
-struct SourceFile {
-    id: SourceId,
+pub struct SourceFile {
     name: String,
     text: String,
 }
 ```
 
-Important requirements:
-
-- stable source identity,
-- offsets refer back to original source,
-- diagnostics can recover file and text information,
-- UTF-8 works correctly.
+Source IDs, byte spans, line and column lookup, UTF-8 policy, and source slicing are separate
+roadmap concerns. Future source infrastructure must preserve the original text so diagnostics can
+recover file and text information without changing its contents.
 
 ## 7. Source Spans
 
