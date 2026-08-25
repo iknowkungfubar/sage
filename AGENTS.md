@@ -129,9 +129,11 @@ Prefer deleting a concept over adding syntax for managing that concept.
 
 ## 4. Current Development Phase
 
+The repository is currently scaffolded: it contains a virtual Cargo workspace and six minimal crate skeletons. Compiler stages and CLI commands remain planned work; the current `sage-cli` is only a placeholder.
+
 The current priority is the **SAGE language kernel**.
 
-Unless the task explicitly changes scope, focus on:
+Unless the task explicitly changes scope, focus on implementing and documenting:
 
 - source representation
 - source spans
@@ -159,7 +161,7 @@ A Product has:
     active as yes or no, initially yes
 ```
 
-Initial useful commands:
+Planned useful commands (the current `sage-cli` is a placeholder; these commands are not implemented yet):
 
 ```bash
 sage check <file>
@@ -214,6 +216,8 @@ Avoid `unsafe` unless there is a demonstrated requirement.
 ```text
 sage/
 ├── AGENTS.md
+├── .gitignore
+├── Cargo.lock
 ├── Cargo.toml
 ├── README.md
 ├── LICENSE
@@ -419,7 +423,13 @@ Do not use `unwrap()`, `expect()`, or `panic!()` for ordinary malformed SAGE inp
 Run:
 
 ```bash
-cargo fmt
+cargo fmt --all
+```
+
+For a formatting check, run:
+
+```bash
+cargo fmt --all -- --check
 ```
 
 and:
@@ -443,6 +453,7 @@ Before adding one, consider maturity, maintenance, API fit, transitive weight, d
 Baseline checks:
 
 ```bash
+cargo check --workspace
 cargo build --workspace
 cargo test --workspace
 cargo fmt --all -- --check
@@ -471,7 +482,7 @@ Use parser tests, compile-fail tests, semantic tests, IR tests, diagnostic snaps
 
 ## 25. Golden Example
 
-Maintain a canonical example similar to:
+A planned canonical fixture (`examples/inventory.sage` is not present yet) is:
 
 ```sage
 application Inventory
@@ -594,6 +605,8 @@ Users should see terms like `Product`, `field`, `whole number`, and `initial val
 Keep changes focused.
 
 Do not mix unrelated feature development, formatting, dependency upgrades, broad refactoring, and documentation rewrites unless genuinely inseparable.
+
+All GitHub writes for this repository go through `turinos gate --repo <path> --intent "..."`, followed by manual merge only. Direct push or PR commands are not the normal path.
 
 ## 41. Commit Messages
 
