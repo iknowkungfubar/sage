@@ -2,7 +2,7 @@
 //!
 //! [TECH] This crate implements composable application-declaration, entity-header, field-prefix,
 //! indentation-prefix, and exact `text`, `whole number`, `decimal number`, and `yes or no`
-//! primitive-type parser slices. Optional-type, literal, initial-clause, full field, AST,
+//! primitive-type and optional-type parser slices. Literal, initial-clause, full field, AST,
 //! recovery, and structured diagnostic parsing remain planned work.
 //! [ELI5] This is the compiler's first careful-reading step: it recognizes an application's name,
 //! an entity header, a field's `name as` prefix, an exact primitive type, or the spaces at a line's
@@ -141,6 +141,10 @@ pub enum ParseError {
     MissingBooleanType,
     /// The source at the supplied offset is not the exact `yes or no` primitive type.
     InvalidBooleanType,
+    /// No primitive type follows an `optional` keyword.
+    MissingOptionalType,
+    /// The source does not contain `optional` followed by one exact primitive type.
+    InvalidOptionalType,
     /// A source offset cannot be represented by the `u32`-based span type.
     SourceTooLarge,
     /// The requested indentation offset is outside the source file.
@@ -726,6 +730,103 @@ pub fn parse_boolean_type_at(
     Ok(ParsedBooleanType { span })
 }
 
+/// The exact optional primitive-type parser result.
+///
+/// This is a parser result containing source provenance, not a semantic type or AST node. The
+/// span covers `optional` and the complete primitive type, preserving horizontal spacing inside
+/// multi-word primitive phrases.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ParsedOptionalType {
+    span: Span,
+}
+
+impl ParsedOptionalType {
+    /// Returns the span of the complete optional type phrase.
+    pub const fn span(self) -> Span {
+        self.span
+    }
+}
+
+/// Parses the exact SAGE 0.1 optional primitive type at a byte offset.
+///
+/// Leading spaces and tabs at the supplied offset are skipped, but newlines are never crossed.
+/// The required separator after `optional` is preserved, and the primitive parser validates the
+/// exact phrase and its delimiter. Following initial-clause text is intentionally left unparsed.
+/// Nested optionals are not valid in SAGE 0.1.
+pub fn parse_optional_type_at(
+    source: &SourceFile,
+    offset: u32,
+) -> Result<ParsedOptionalType, ParseError> {
+    let bytes = source.text().as_bytes();
+    let source_length = u32::try_from(bytes.len()).map_err(|_| ParseError::SourceTooLarge)?;
+    let mut start = usize::try_from(offset).map_err(|_| ParseError::MissingOptionalType)?;
+    if offset > source_length || start > bytes.len() {
+        return Err(ParseError::MissingOptionalType);
+    }
+
+    while bytes
+        .get(start)
+        .is_some_and(|byte| is_horizontal_space(*byte))
+    {
+        start = start.checked_add(1).ok_or(ParseError::SourceTooLarge)?;
+    }
+
+    if bytes
+        .get(start)
+        .is_none_or(|byte| matches!(*byte, b'\n' | b'\r'))
+    {
+        return Err(ParseError::MissingOptionalType);
+    }
+
+    let keyword_end = start
+        .checked_add(b"optional".len())
+        .ok_or(ParseError::SourceTooLarge)?;
+    if bytes.get(start..keyword_end) != Some(b"optional") {
+        return Err(ParseError::InvalidOptionalType);
+    }
+    if !bytes
+        .get(keyword_end)
+        .is_some_and(|byte| is_horizontal_space(*byte))
+    {
+        return match bytes.get(keyword_end) {
+            None | Some(b'\n' | b'\r') => Err(ParseError::MissingOptionalType),
+            Some(_) => Err(ParseError::InvalidOptionalType),
+        };
+    }
+
+    let mut primitive_start = keyword_end;
+    while bytes
+        .get(primitive_start)
+        .is_some_and(|byte| is_horizontal_space(*byte))
+    {
+        primitive_start = primitive_start
+            .checked_add(1)
+            .ok_or(ParseError::SourceTooLarge)?;
+    }
+    let primitive_offset =
+        u32::try_from(primitive_start).map_err(|_| ParseError::SourceTooLarge)?;
+    let primitive_end =
+        match bytes.get(primitive_start) {
+            Some(b't') => {
+                parse_text_type_at(source, primitive_offset).map(|parsed| parsed.span().end())
+            }
+            Some(b'w') => parse_whole_number_type_at(source, primitive_offset)
+                .map(|parsed| parsed.span().end()),
+            Some(b'd') => parse_decimal_number_type_at(source, primitive_offset)
+                .map(|parsed| parsed.span().end()),
+            Some(b'y') => {
+                parse_boolean_type_at(source, primitive_offset).map(|parsed| parsed.span().end())
+            }
+            Some(b'\n' | b'\r') | None => return Err(ParseError::MissingOptionalType),
+            Some(_) => return Err(ParseError::InvalidOptionalType),
+        }
+        .map_err(|_| ParseError::InvalidOptionalType)?;
+
+    let start = u32::try_from(start).map_err(|_| ParseError::SourceTooLarge)?;
+    let span = Span::new(source.id(), start, primitive_end).ok_or(ParseError::SourceTooLarge)?;
+    Ok(ParsedOptionalType { span })
+}
+
 fn scan_field_name_end(bytes: &[u8], start: usize) -> Result<usize, ParseError> {
     let mut end = start.checked_add(1).ok_or(ParseError::SourceTooLarge)?;
     while bytes.get(end).is_some_and(|byte| is_identifier_tail(*byte)) {
@@ -859,8 +960,8 @@ fn blank_line_newline_length(bytes: &[u8], start: usize) -> Option<usize> {
 mod tests {
     use super::{
         parse_application, parse_boolean_type_at, parse_decimal_number_type_at, parse_entity_at,
-        parse_field_at, parse_indentation_at, parse_text_type_at, parse_whole_number_type_at,
-        ParseError,
+        parse_field_at, parse_indentation_at, parse_optional_type_at, parse_text_type_at,
+        parse_whole_number_type_at, ParseError,
     };
     use sage_syntax::{SourceFile, SourceId};
 
@@ -1498,6 +1599,96 @@ mod tests {
                 Err(ParseError::InvalidBooleanType)
             );
         }
+    }
+
+    #[test]
+    fn parses_all_optional_primitive_types_and_exact_spans() {
+        for (input, expected) in [
+            ("optional text", "optional text"),
+            ("optional whole  \tnumber", "optional whole  \tnumber"),
+            ("optional decimal\tnumber", "optional decimal\tnumber"),
+            ("optional yes  \tor\tno", "optional yes  \tor\tno"),
+        ] {
+            let file = source(input);
+            let parsed = parse_optional_type_at(&file, 0).expect("valid optional type");
+            assert_eq!(file.slice(parsed.span()), Some(expected));
+            assert_eq!(parsed.span().start(), 0);
+            assert_eq!(parsed.span().end(), input.len() as u32);
+        }
+    }
+
+    #[test]
+    fn parses_optional_type_after_field_prefix_and_skips_leading_spacing() {
+        let file = source("name as \t  optional whole  \tnumber, initially anything");
+        let field = parse_field_at(&file, 0).expect("valid field prefix");
+        let parsed =
+            parse_optional_type_at(&file, field.span().end()).expect("valid optional type");
+
+        assert_eq!(file.slice(parsed.span()), Some("optional whole  \tnumber"));
+        assert_eq!(parsed.span().start(), 11);
+        assert_eq!(parsed.span().end(), 34);
+    }
+
+    #[test]
+    fn accepts_optional_type_delimiters_without_parsing_following_text() {
+        for suffix in ["\n", "\r\n", ", initially anything", " ", ""] {
+            let file = source(&format!("optional text{suffix}"));
+            let parsed = parse_optional_type_at(&file, 0).expect("valid optional type");
+            assert_eq!(file.slice(parsed.span()), Some("optional text"));
+        }
+    }
+
+    #[test]
+    fn rejects_missing_nested_and_malformed_optional_types() {
+        for input in [
+            "",
+            "\n",
+            "\r",
+            " \t\r\n",
+            "optional",
+            "optional \t",
+            "optional\ntext",
+        ] {
+            assert_eq!(
+                parse_optional_type_at(&source(input), 0),
+                Err(ParseError::MissingOptionalType)
+            );
+        }
+        for input in [
+            "optionaltext",
+            "optional-text",
+            "optional optional text",
+            "optional whole",
+            "optional decimal",
+            "optional yes",
+            "optional whole-number",
+            "optional whole\nnumber",
+            "optional decimalnumber",
+            "optional yes orno",
+            "optional Text",
+            "optional text1",
+            "optional yes or nox",
+            "optional têxt",
+        ] {
+            assert_eq!(
+                parse_optional_type_at(&source(input), 0),
+                Err(ParseError::InvalidOptionalType),
+                "input: {input:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_invalid_optional_type_offsets() {
+        let file = source("optional text\noptional text");
+        assert_eq!(
+            parse_optional_type_at(&file, 13),
+            Err(ParseError::MissingOptionalType)
+        );
+        assert_eq!(
+            parse_optional_type_at(&file, 99),
+            Err(ParseError::MissingOptionalType)
+        );
     }
 
     #[test]
