@@ -1,0 +1,86 @@
+{
+  "$schema": "./project.schema.json",
+  "schemaVersion": 1,
+  "project": "SAGE",
+  "root": ".",
+  "sourceOfTruth": [
+    "AGENTS.md",
+    "Cargo.toml",
+    "docs/ARCHITECTURE.md",
+    "governance/project.schema.json"
+  ],
+  "protectedPaths": [
+    "AGENTS.md",
+    "Cargo.toml",
+    "Cargo.lock",
+    "governance/project.json",
+    "scripts/agent/verify.py"
+  ],
+  "generatedPaths": [
+    "target/",
+    ".agent/"
+  ],
+  "integrity": {
+    "failOnTrackedChangeDuringVerification": true,
+    "reportOutputLimitBytes": 20000
+  },
+  "riskTriggers": {
+    "tier2": [
+      "public API or schema",
+      "authentication, authorization, sensitive data, or trust boundary",
+      "dependency, build, CI, migration, concurrency, or cross-component behavior"
+    ],
+    "tier3": [
+      "production, release, deployment, destructive or irreversible action",
+      "secret or identity use/change, billing/spend, legal/privacy decision, external communication"
+    ]
+  },
+  "gates": [
+    {
+      "id": "knowledge-graph",
+      "description": "Validate durable repository knowledge graph structure and references",
+      "command": ["python3", "scripts/agent/validate_knowledge_graph.py", "docs/knowledge/graph.json"],
+      "required": true,
+      "timeoutSeconds": 60
+    },
+    {
+      "id": "format",
+      "description": "Verify Rust formatting without modifying files",
+      "command": ["cargo", "fmt", "--all", "--", "--check"],
+      "required": true,
+      "timeoutSeconds": 300
+    },
+    {
+      "id": "check",
+      "description": "Check the Rust workspace",
+      "command": ["cargo", "check", "--workspace"],
+      "required": true,
+      "timeoutSeconds": 600
+    },
+    {
+      "id": "unit",
+      "description": "Run deterministic workspace tests",
+      "command": ["cargo", "test", "--workspace"],
+      "required": true,
+      "timeoutSeconds": 900
+    },
+    {
+      "id": "build",
+      "description": "Build the Rust workspace",
+      "command": ["cargo", "build", "--workspace"],
+      "required": true,
+      "timeoutSeconds": 1200
+    },
+    {
+      "id": "clippy",
+      "description": "Run workspace Clippy with warnings denied",
+      "command": ["cargo", "clippy", "--workspace", "--all-targets", "--all-features", "--", "-D", "warnings"],
+      "required": true,
+      "timeoutSeconds": 1200
+    }
+  ],
+  "profiles": {
+    "quick": ["knowledge-graph", "format", "check", "unit"],
+    "pr": ["knowledge-graph", "format", "check", "unit", "build", "clippy"]
+  }
+}
