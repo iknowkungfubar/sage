@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/schemas/repository-knowledge-graph-v1.json",
+  "title": "Evidence-backed repository knowledge graph",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "project", "nodes", "edges"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "schemaVersion": { "const": 1 },
+    "project": { "type": "string", "minLength": 1 },
+    "verifiedRevision": { "type": ["string", "null"] },
+    "lastUpdated": { "type": ["string", "null"], "format": "date" },
+    "nodes": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/node" }
+    },
+    "edges": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/edge" }
+    }
+  },
+  "$defs": {
+    "status": { "enum": ["active", "deprecated", "proposed"] },
+    "confidence": { "enum": ["high", "medium", "low"] },
+    "evidence": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
+    },
+    "node": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type", "name", "description", "status", "evidence"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z][a-z0-9-]*:[a-z0-9][a-z0-9._/-]*$" },
+        "type": {
+          "enum": ["requirement", "component", "interface", "invariant", "decision", "risk", "control", "test", "runbook", "external"]
+        },
+        "name": { "type": "string", "minLength": 1 },
+        "description": { "type": "string", "minLength": 1 },
+        "status": { "$ref": "#/$defs/status" },
+        "confidence": { "$ref": "#/$defs/confidence" },
+        "evidence": { "$ref": "#/$defs/evidence" },
+        "tags": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        }
+      }
+    },
+    "edge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "from", "type", "to", "status", "evidence"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^edge:[a-z0-9][a-z0-9._/-]*$" },
+        "from": { "type": "string", "minLength": 3 },
+        "type": {
+          "enum": ["owns", "depends_on", "calls", "publishes", "consumes", "implements", "constrained_by", "supersedes", "verifies", "mitigates", "monitors", "recovers", "exposes", "stores", "authenticates", "authorizes", "documented_by", "operated_by"]
+        },
+        "to": { "type": "string", "minLength": 3 },
+        "status": { "$ref": "#/$defs/status" },
+        "confidence": { "$ref": "#/$defs/confidence" },
+        "evidence": { "$ref": "#/$defs/evidence" }
+      }
+    }
+  }
+}

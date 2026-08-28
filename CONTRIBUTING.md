@@ -90,6 +90,16 @@ If a command cannot be run because of an environment limitation, state that clea
 
 Do not claim checks passed when they were not executed.
 
+## Governed Verification
+
+Use the repository-defined profiles in `governance/project.json` through:
+
+```bash
+python3 scripts/agent/verify.py --config governance/project.json --profile quick
+```
+
+The verifier is fail-closed for malformed configuration, unknown gates, unresolved placeholders, and repository-integrity failures. Report the exact command and evidence when a required check cannot run.
+
 ## Contribution Philosophy
 
 Before proposing a language feature, ask:

@@ -1,0 +1,126 @@
+{
+  "$schema": "../../governance/knowledge-graph.schema.json",
+  "schemaVersion": 1,
+  "project": "SAGE",
+  "verifiedRevision": "4aaf04e2313abb94335c9a4a5f7b24a669f76600",
+  "lastUpdated": "2026-08-27",
+  "nodes": [
+    {
+      "id": "component:workspace",
+      "type": "component",
+      "name": "SAGE Rust workspace",
+      "description": "Virtual Cargo workspace containing six language-kernel crates.",
+      "status": "active",
+      "confidence": "high",
+      "evidence": ["Cargo.toml"],
+      "tags": ["rust", "workspace"]
+    },
+    {
+      "id": "component:parser",
+      "type": "component",
+      "name": "Parser crate",
+      "description": "Planned parser stage for deterministic SAGE source analysis.",
+      "status": "active",
+      "confidence": "high",
+      "evidence": ["crates/sage-parser/Cargo.toml", "docs/ARCHITECTURE.md"],
+      "tags": ["language-kernel"]
+    },
+    {
+      "id": "component:semantic",
+      "type": "component",
+      "name": "Semantic crate",
+      "description": "Planned semantic analysis and type-validation stage.",
+      "status": "active",
+      "confidence": "high",
+      "evidence": ["crates/sage-semantic/Cargo.toml", "docs/ARCHITECTURE.md"],
+      "tags": ["language-kernel"]
+    },
+    {
+      "id": "component:ir",
+      "type": "component",
+      "name": "SAGE IR crate",
+      "description": "Planned normalized intermediate representation of program meaning.",
+      "status": "active",
+      "confidence": "high",
+      "evidence": ["crates/sage-ir/Cargo.toml", "docs/ARCHITECTURE.md"],
+      "tags": ["language-kernel"]
+    },
+    {
+      "id": "invariant:deterministic-semantics",
+      "type": "invariant",
+      "name": "Deterministic semantics",
+      "description": "The same source, compiler version, configuration, and dependencies should produce the same interpretation; compiler semantics must not depend on LLM inference.",
+      "status": "active",
+      "confidence": "high",
+      "evidence": ["AGENTS.md", "README.md"],
+      "tags": ["determinism", "safety"]
+    },
+    {
+      "id": "control:workspace-verification",
+      "type": "control",
+      "name": "Workspace verification profile",
+      "description": "The quick profile validates graph structure, formatting, workspace checks, and workspace tests using repository-proven commands.",
+      "status": "active",
+      "confidence": "high",
+      "evidence": ["governance/project.json", "scripts/agent/verify.py"],
+      "tags": ["verification"]
+    },
+    {
+      "id": "decision:canonical-agent-contract",
+      "type": "decision",
+      "name": "Root AGENTS contract",
+      "description": "Root AGENTS.md remains the canonical repository-wide engineering contract; oh-my-pi uses a thin APPEND_SYSTEM adapter.",
+      "status": "active",
+      "confidence": "high",
+      "evidence": ["AGENTS.md", ".omp/APPEND_SYSTEM.md"],
+      "tags": ["governance"]
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge:workspace-owns-parser",
+      "from": "component:workspace",
+      "type": "owns",
+      "to": "component:parser",
+      "status": "active",
+      "confidence": "high",
+      "evidence": ["Cargo.toml", "docs/ARCHITECTURE.md"]
+    },
+    {
+      "id": "edge:workspace-owns-semantic",
+      "from": "component:workspace",
+      "type": "owns",
+      "to": "component:semantic",
+      "status": "active",
+      "confidence": "high",
+      "evidence": ["Cargo.toml", "docs/ARCHITECTURE.md"]
+    },
+    {
+      "id": "edge:workspace-owns-ir",
+      "from": "component:workspace",
+      "type": "owns",
+      "to": "component:ir",
+      "status": "active",
+      "confidence": "high",
+      "evidence": ["Cargo.toml", "docs/ARCHITECTURE.md"]
+    },
+    {
+      "id": "edge:workspace-constrained-by-deterministic-semantics",
+      "from": "component:workspace",
+      "type": "constrained_by",
+      "to": "invariant:deterministic-semantics",
+      "status": "active",
+      "confidence": "high",
+      "evidence": ["AGENTS.md", "README.md"]
+    },
+    {
+      "id": "edge:workspace-verification-mitigates-regressions",
+      "from": "control:workspace-verification",
+      "type": "mitigates",
+      "to": "invariant:deterministic-semantics",
+      "status": "active",
+      "confidence": "medium",
+      "evidence": ["governance/project.json", "scripts/agent/verify.py"]
+    }
+  ]
+}

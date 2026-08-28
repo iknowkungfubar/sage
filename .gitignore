@@ -1,1 +1,6 @@
 /target/
+# Ephemeral agent/control-graph state and local verification reports
+.agent/
+
+# Local oh-my-pi session artifacts
+.omp-local/
