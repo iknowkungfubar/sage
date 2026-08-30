@@ -4,3 +4,4 @@
 
 # Local oh-my-pi session artifacts
 .omp-local/
+.token-policy/
